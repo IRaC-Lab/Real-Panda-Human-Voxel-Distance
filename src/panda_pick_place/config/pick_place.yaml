@@ -1,0 +1,23 @@
+# Joint-space waypoints (rad), generated with:
+#   ros2 run panda_pick_place compute_waypoints --x 0.45 --y 0.30 --pick-z 0.25 --hover-z 0.40
+# Left/right is a pure joint-1 swing; the wrist joints (5-7) do not move.
+# Heights are TCP z in the panda_link0 frame. The grasp height (0.25 m) is a
+# conservative guess: lower it only after checking the real table/object height.
+pick_place_node:
+  ros__parameters:
+    home: [0.0000, -0.7854, 0.0000, -2.3562, 0.0000, 1.5708, 0.7854]
+    pick_above: [0.5880, -0.0630, 0.0000, -1.9555, 0.0000, 1.8925, 0.7854]
+    pick: [0.5880, 0.0711, 0.0000, -2.1929, 0.0000, 2.2641, 0.7854]
+    place_above: [-0.5880, -0.0630, 0.0000, -1.9555, 0.0000, 1.8925, 0.7854]
+    place: [-0.5880, 0.0711, 0.0000, -2.1929, 0.0000, 2.2641, 0.7854]
+
+    max_joint_speed: 0.2        # rad/s, slowest joint sets each segment duration
+    min_segment_time: 2.0       # s
+    gripper_open_width: 0.08    # m
+    gripper_speed: 0.05         # m/s
+    grasp_width: 0.03           # m, width of the object to pick
+    grasp_force: 20.0           # N
+    grasp_epsilon: 0.05         # m, tolerance on grasp_width
+    repeat: 0                   # number of pick-place cycles (0 = until Ctrl+C)
+    use_gripper: true           # false: skip gripper actions (e.g. mock hardware)
+    start_delay: 3.0            # s, delay after connecting before the first motion

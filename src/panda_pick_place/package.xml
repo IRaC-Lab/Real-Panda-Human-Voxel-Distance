@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>panda_pick_place</name>
+  <version>0.1.0</version>
+  <description>Left/right pick-and-place for a real Franka Panda (libfranka 0.9.2) with ros2_control.</description>
+  <maintainer email="lab.esjin4664@gmail.com">esjin</maintainer>
+  <license>Apache-2.0</license>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>control_msgs</exec_depend>
+  <exec_depend>trajectory_msgs</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>franka_msgs</exec_depend>
+  <exec_depend>franka_control2</exec_depend>
+  <exec_depend>franka_description</exec_depend>
+  <exec_depend>franka_gripper</exec_depend>
+  <exec_depend>franka_robot_state_broadcaster</exec_depend>
+  <exec_depend>joint_trajectory_controller</exec_depend>
+  <exec_depend>joint_state_broadcaster</exec_depend>
+  <exec_depend>joint_state_publisher</exec_depend>
+  <exec_depend>robot_state_publisher</exec_depend>
+  <exec_depend>controller_manager</exec_depend>
+  <exec_depend>xacro</exec_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

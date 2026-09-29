@@ -1,0 +1,13 @@
+/**:
+  ros__parameters:
+    # QoS settings
+    input_qos: "DEFAULT" # NOTE(2024.09.20): Needed to for reliable delivery of messages from Isaac Sim.
+    # Map clearing settings
+    map_clearing_radius_m: 15.0 # no map clearing if < 0.0
+    map_clearing_frame_id: "base_link"
+    # Increase visualization distance.
+    layer_visualization_exclusion_radius_m: 15.0
+
+    static_mapper:
+      # mesh streamer
+      layer_streamer_exclusion_radius_m: 15.0

@@ -1,0 +1,5 @@
+repositories:
+  franka_arm_ros2:
+    type: git
+    url: https://github.com/LCAS/franka_arm_ros2.git
+    version: 6867bde68970104118d04ae853ddded15bf857fb

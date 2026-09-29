@@ -1,0 +1,6 @@
+repositories:
+  isaac_ros_nvblox:
+    type: git
+    url: https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_nvblox.git
+    version: 7908a183acf84f4f1ab3fda7b6d6caf3eefc1f78
+

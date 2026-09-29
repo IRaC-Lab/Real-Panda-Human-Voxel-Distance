@@ -1,0 +1,24 @@
+diff --git a/nvblox_ros/src/lib/layer_publishing.cpp b/nvblox_ros/src/lib/layer_publishing.cpp
+index b06cbd9..45c4559 100644
+--- a/nvblox_ros/src/lib/layer_publishing.cpp
++++ b/nvblox_ros/src/lib/layer_publishing.cpp
+@@ -422,10 +422,15 @@ void publishVoxelLayerUsingPlugin(
+     return;
+   }
+ 
+-  /// Remove blocks
+-  nvblox_msgs::msg::VoxelBlockLayer delete_msg;
+-  createBlockRemovalMsg(blocks_to_remove, frame_id, timestamp, block_size, voxel_size, &delete_msg);
+-  publisher->publish(delete_msg);
++  /// Remove blocks only when there is something to remove. Publishing an
++  /// empty deletion message doubles subscriber callbacks on every update.
++  if (!blocks_to_remove.empty()) {
++    nvblox_msgs::msg::VoxelBlockLayer delete_msg;
++    createBlockRemovalMsg(
++      blocks_to_remove, frame_id, timestamp, block_size, voxel_size,
++      &delete_msg);
++    publisher->publish(delete_msg);
++  }
+ 
+   /// Add/update blocks
+   nvblox_msgs::msg::VoxelBlockLayer update_msg;

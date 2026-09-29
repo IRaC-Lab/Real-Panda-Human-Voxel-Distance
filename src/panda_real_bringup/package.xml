@@ -1,0 +1,26 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>panda_real_bringup</name>
+  <version>0.1.0</version>
+  <description>Real Panda, RealSense, and nvblox people-perception bringup.</description>
+  <maintainer email="lab.esjin4664@gmail.com">esjin</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <exec_depend>isaac_ros_launch_utils</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>my_people_nvblox_bringup</exec_depend>
+  <exec_depend>nvblox_examples_bringup</exec_depend>
+  <exec_depend>nvblox_ros</exec_depend>
+  <exec_depend>nvblox_ros_python_utils</exec_depend>
+  <exec_depend>nvblox_rviz_plugin</exec_depend>
+  <exec_depend>panda_camera_alignment</exec_depend>
+  <exec_depend>realsense2_camera</exec_depend>
+  <exec_depend>rviz2</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

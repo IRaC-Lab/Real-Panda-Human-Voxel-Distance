@@ -1,0 +1,70 @@
+panda_voxel_classifier:
+  ros__parameters:
+    voxel_frame: odom
+    realtime_panda_layer_topic: /panda/voxel_layer
+    sphere_topic: /panda/collision_spheres
+    realtime_update_rate_hz: 30.0
+    margin_m: 0.025
+    sphere_alpha: 0.18
+    robot_description_topic: /panda/robot_description
+    robot_description_path: /home/esjin/.local/share/ov/pkg/isaac_sim-4.2.0/extscache/omni.importer.urdf-1.14.1+106.0.0.lx64.r.cp310/data/urdf/robots/franka_description/robots/panda_arm_hand.urdf
+
+    # Nine compact spheres placed along the robot centerline. They cover the
+    # robot core without the oversized bubbles produced by enclosing merges.
+    sphere_links:
+      - panda_link0
+      - panda_link1
+      - panda_link2
+      - panda_link3
+      - panda_link4
+      - panda_link5
+      - panda_link5
+      - panda_link6
+      - panda_hand
+    sphere_offsets: [
+      # Base through elbow: one compact sphere per rigid link.
+       0.000,  0.000,  0.085,
+       0.000, -0.028, -0.050,
+       0.000, -0.073,  0.028,
+       0.037,  0.019, -0.043,
+      -0.041,  0.040,  0.020,
+      # Long forearm: two spheres along its centerline.
+       0.000,  0.055, -0.045,
+       0.000,  0.040, -0.160,
+      # Wrist and end effector; the redundant panda_link7 sphere is omitted.
+       0.085,  0.010,  0.000,
+       0.000,  0.000,  0.045
+    ]
+    sphere_radii: [
+      0.095,
+      0.095,
+      0.085,
+      0.085,
+      0.080,
+      0.090, 0.085,
+      0.070,
+      0.100
+    ]
+
+closest_panda_human_voxels:
+  ros__parameters:
+    panda_topic: /panda/voxel_layer
+    update_rate_hz: 5.0
+    sphere_topic: /panda/collision_spheres
+    expanded_sphere_topic: /panda/human_exclusion_spheres
+    # Reject a near-zero distance only when its per-update drop is faster than
+    # the configured relative motion plus measurement noise can explain.
+    use_spatial_human_filter: true
+    robot_component_overlap_ratio: 0.3
+    near_zero_rejection_threshold_m: 0.3
+    max_relative_speed_mps: 3.0
+    distance_noise_margin_m: 0.1
+    # Stop zero-order hold after 2 s, or immediately when the last valid
+    # human voxel cloud touched the outer 10% of the front camera image.
+    rejected_hold_timeout_s: 2.0
+    camera_info_topic: /front_stereo_camera/left/camera_info
+    image_edge_margin_ratio: 0.1
+    # Keep this equal to panda_voxel_classifier.margin_m above.
+    panda_classification_sphere_margin_m: 0.025
+    # Added outside the effective Panda-classification sphere for person filtering.
+    human_exclusion_additional_margin_m: 0.05
