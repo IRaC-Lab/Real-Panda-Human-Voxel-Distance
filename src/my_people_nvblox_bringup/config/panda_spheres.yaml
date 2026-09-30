@@ -6,8 +6,6 @@ panda_voxel_classifier:
     realtime_update_rate_hz: 30.0
     margin_m: 0.025
     sphere_alpha: 0.18
-    robot_description_topic: /panda/robot_description
-    robot_description_path: /home/esjin/.local/share/ov/pkg/isaac_sim-4.2.0/extscache/omni.importer.urdf-1.14.1+106.0.0.lx64.r.cp310/data/urdf/robots/franka_description/robots/panda_arm_hand.urdf
 
     # Nine compact spheres placed along the robot centerline. They cover the
     # robot core without the oversized bubbles produced by enclosing merges.

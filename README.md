@@ -36,6 +36,10 @@ tested against Panda + libfranka 0.9.2 + Humble + ros2_control.
 - Install the standard ROS 2 build tools: `python3-colcon-common-extensions`,
   `python3-rosdep`, `python3-vcstool` (and run `rosdep init` / `rosdep update`
   if this is a fresh ROS 2 install).
+- [git-lfs](https://git-lfs.com/): `git lfs install` once per machine, then
+  `git lfs pull` after cloning (the vanilla PeopleSemSegNet `.onnx` under
+  `models/peoplesemsegnet/vanilla/` is LFS-tracked — without this you'll get
+  a small pointer file instead of the actual 119 MB of weights).
 
 ### 2. Isaac ROS apt packages (NITROS)
 
@@ -66,8 +70,8 @@ FCI expects:
 sudo apt remove ros-humble-libfranka   # if present: wrong version for Panda
 sudo apt install ros-humble-ros2-controllers ros-humble-joint-trajectory-controller
 
-git clone --recursive https://github.com/frankarobotics/libfranka.git ~/franka_legacy/libfranka
-cd ~/franka_legacy/libfranka
+git clone --recursive https://github.com/frankarobotics/libfranka.git ~/libfranka
+cd ~/libfranka
 git checkout 0.9.2
 git submodule update --init --recursive
 mkdir build && cd build
@@ -77,23 +81,23 @@ cmake --build . -j"$(nproc)"
 
 ### 4. `~/.bashrc` environment
 
+Add this as a function, not a permanent overlay — every command in this
+README's `## Run` section starts with `source_real_ws` to switch that one
+terminal onto this workspace. A plain shell (before you call it) stays on
+whatever ROS 2 setup is already in `~/.bashrc`, so this is safe to add
+regardless of what else is installed on the machine.
+
 ```bash
-export LD_LIBRARY_PATH="$HOME/franka_legacy/libfranka/build:${LD_LIBRARY_PATH:-}"
-
-# Discard inherited ROS overlays before loading this workspace.
-unset AMENT_PREFIX_PATH CMAKE_PREFIX_PATH COLCON_PREFIX_PATH ROS_PACKAGE_PATH PYTHONPATH
-
-if [ -f "/opt/ros/humble/setup.bash" ]; then
-    source "/opt/ros/humble/setup.bash"
-fi
-if [ -f "$HOME/panda_real_ws/install/setup.bash" ]; then
+source_real_ws() {
+    unset AMENT_PREFIX_PATH CMAKE_PREFIX_PATH COLCON_PREFIX_PATH ROS_PACKAGE_PATH PYTHONPATH
+    export LD_LIBRARY_PATH="$HOME/libfranka/build:${LD_LIBRARY_PATH:-}"
+    source /opt/ros/humble/setup.bash
     source "$HOME/panda_real_ws/install/setup.bash"
-fi
+}
 ```
 
-Only add this if this machine also runs the Isaac Sim repo and you want
-both overlays available at once — otherwise leave the sim workspace out of
-new shells entirely, since the two systems aren't meant to run together.
+Append that to `~/.bashrc`, then `source ~/.bashrc` (or open a new terminal)
+before using any command below.
 
 ### 5. Workspace setup
 
@@ -113,7 +117,7 @@ rm -f src/isaac_ros_nvblox/nvblox_examples/realsense_splitter/COLCON_IGNORE
 
 colcon build --symlink-install \
   --packages-up-to panda_pick_place panda_real_bringup realsense_splitter \
-  --cmake-args -DFranka_DIR="$HOME/franka_legacy/libfranka/build" -DBUILD_TESTING=OFF
+  --cmake-args -DFranka_DIR="$HOME/libfranka/build" -DBUILD_TESTING=OFF
 source install/setup.bash
 ```
 

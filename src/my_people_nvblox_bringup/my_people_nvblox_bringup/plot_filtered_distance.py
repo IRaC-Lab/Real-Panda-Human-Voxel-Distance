@@ -64,7 +64,7 @@ def run_plot(show_raw: bool, args=None) -> None:
         pass
     finally:
         plot_name = 'distance_comparison' if show_raw else 'filtered_distance'
-        output_directory = Path.home() / 'my_ws' / 'graph'
+        output_directory = Path.home() / 'panda_real_ws' / 'graph'
         output_directory.mkdir(parents=True, exist_ok=True)
         output_path = output_directory / (
             f'{plot_name}_{datetime.now():%Y%m%d_%H%M%S}.png')
