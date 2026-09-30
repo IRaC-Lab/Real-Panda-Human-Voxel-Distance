@@ -143,107 +143,36 @@ else changes between them.
 
 Activate FCI on the Desk web UI before Terminal 1.
 
-#### Terminal 1 — Panda driver + TF + pick-and-place controller
+| Terminal | Command |
+| --- | --- |
+| 1 — Panda driver + TF + pick-and-place controller | `ros2 launch panda_pick_place panda_control.launch.py robot_ip:=172.16.0.2` |
+| 2 — RealSense | `ros2 launch nvblox_examples_bringup realsense.launch.py run_standalone:=True color_profile:=848x480x30 depth_profile:=848x480x30` |
+| 3 — ArUco camera alignment | `ros2 launch panda_camera_alignment aruco_align.launch.py mode:=dynamic camera_mount_frame:=camera0_link` |
+| 4 — People segmentation + nvblox + Panda/human distance | `ros2 launch panda_real_bringup panda_realsense_people.launch.py run_realsense:=False run_alignment:=False run_rviz:=False` |
+| 5 — RViz | `rviz2 -d ~/panda_real_ws/src/panda_real_bringup/config/panda_realsense_people.rviz` |
+| 6 (optional) — Pick-and-place motion | `ros2 run panda_pick_place pick_place_node --ros-args --params-file ~/panda_real_ws/src/panda_pick_place/config/pick_place.yaml` |
 
-```bash
-source_real_ws
-ros2 launch panda_pick_place panda_control.launch.py robot_ip:=172.16.0.2
-```
+Notes:
 
-#### Terminal 2 — RealSense
-
-```bash
-source_real_ws
-ros2 launch nvblox_examples_bringup realsense.launch.py \
-  run_standalone:=True \
-  color_profile:=848x480x30 \
-  depth_profile:=848x480x30
-```
-
-#### Terminal 3 — ArUco camera alignment
-
-`mode:=dynamic` while the mount isn't fixed yet; `mode:=static
-num_samples:=15` once it's permanently mounted.
-
-```bash
-source_real_ws
-ros2 launch panda_camera_alignment aruco_align.launch.py \
-  mode:=dynamic \
-  camera_mount_frame:=camera0_link
-```
-
-#### Terminal 4 — People segmentation + nvblox + Panda/human distance
-
-```bash
-source_real_ws
-ros2 launch panda_real_bringup panda_realsense_people.launch.py \
-  run_realsense:=False \
-  run_alignment:=False \
-  run_rviz:=False
-```
-
-#### Terminal 5 — RViz
-
-```bash
-source_real_ws
-rviz2 -d ~/panda_real_ws/src/panda_real_bringup/config/panda_realsense_people.rviz
-```
-
-Lighter arm-only debug view (Panda RobotModel + collision spheres, no camera
-needed):
-
-```bash
-source_real_ws
-rviz2 -d ~/panda_real_ws/src/my_people_nvblox_bringup/config/visualization/panda_sphere_debug.rviz
-```
-
-#### Terminal 6 (optional) — Pick-and-place motion
-
-Left/right joint-space pick-and-place, repeating until Ctrl+C (returns to
-home before stopping; a second Ctrl+C halts in place instead).
-`panda_pick_place/config/pick_place.yaml` has the waypoints, speed, and
-gripper force.
-
-```bash
-source_real_ws
-ros2 run panda_pick_place pick_place_node --ros-args \
-  --params-file ~/panda_real_ws/src/panda_pick_place/config/pick_place.yaml
-```
+- Terminal 3: `mode:=dynamic` while the mount isn't fixed yet, `mode:=static
+  num_samples:=15` once it's permanently mounted.
+- Terminal 5: lighter arm-only debug view (no camera needed) →
+  `~/panda_real_ws/src/my_people_nvblox_bringup/config/visualization/panda_sphere_debug.rviz`.
+- Terminal 6: Ctrl+C once returns home then stops; twice halts in place.
+  Waypoints/speed/gripper force in `pick_place.yaml`.
 
 ### Camera-only, no Panda
 
-For debugging the people-detection pipeline (RealSense → segmentation →
-nvblox) on its own, without the arm or an FCI connection. `run_panda:=False`
-switches `global_frame` to `camera0_link` and skips the Panda-only nodes.
+Debugs the people-detection pipeline (RealSense → segmentation → nvblox) on
+its own, without the arm or an FCI connection. Same Terminal 1 as above,
+plus `run_panda:=False` on Terminal 2 (switches `global_frame` to
+`camera0_link`, skips the Panda-only nodes) and no Terminals 3/5/6.
 
-#### Terminal 1 — RealSense
-
-```bash
-source_real_ws
-ros2 launch nvblox_examples_bringup realsense.launch.py \
-  run_standalone:=True \
-  color_profile:=848x480x30 \
-  depth_profile:=848x480x30
-```
-
-#### Terminal 2 — People segmentation + nvblox
-
-```bash
-source_real_ws
-ros2 launch panda_real_bringup panda_realsense_people.launch.py \
-  run_realsense:=False \
-  run_alignment:=False \
-  run_rviz:=False \
-  run_panda:=False
-```
-
-#### Terminal 3 — Color + depth overlay preview
-
-```bash
-source_real_ws
-ros2 run rqt_image_view rqt_image_view /nvblox_node/dynamic_color_frame_overlay &
-ros2 run rqt_image_view rqt_image_view /nvblox_node/dynamic_depth_frame_overlay
-```
+| Terminal | Command |
+| --- | --- |
+| 1 — RealSense | `ros2 launch nvblox_examples_bringup realsense.launch.py run_standalone:=True color_profile:=848x480x30 depth_profile:=848x480x30` |
+| 2 — People segmentation + nvblox | `ros2 launch panda_real_bringup panda_realsense_people.launch.py run_realsense:=False run_alignment:=False run_rviz:=False run_panda:=False` |
+| 3 — Color + depth overlay preview | `ros2 run rqt_image_view rqt_image_view /nvblox_node/dynamic_color_frame_overlay & ros2 run rqt_image_view rqt_image_view /nvblox_node/dynamic_depth_frame_overlay` |
 
 ### Known gaps
 
