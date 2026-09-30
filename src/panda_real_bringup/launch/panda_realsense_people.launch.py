@@ -23,7 +23,7 @@ def generate_launch_description() -> LaunchDescription:
     args.add_arg(
         'vanilla_engine_file_path',
         os.path.join(os.path.expanduser('~'), 'panda_real_ws', 'models',
-                     'peoplesemsegnet', '1', 'model_vanilla_v2_0_2.plan'),
+                     'peoplesemsegnet', 'vanilla', '1', 'model_vanilla_v2_0_2.plan'),
         cli=True)
     args.add_arg(
         'segmentation_output_binding_names', '["argmax_1"]', cli=True)

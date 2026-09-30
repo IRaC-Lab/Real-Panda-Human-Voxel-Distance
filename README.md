@@ -112,17 +112,17 @@ source install/setup.bash
 
 ### 6. Regenerate the TensorRT engine
 
-`models/peoplesemsegnet/1/model_vanilla_v2_0_2.plan` is a TensorRT engine,
-tied to the exact GPU + TensorRT version it was built on, so it's
+`models/peoplesemsegnet/vanilla/1/model_vanilla_v2_0_2.plan` is a TensorRT
+engine, tied to the exact GPU + TensorRT version it was built on, so it's
 intentionally not tracked in git — only the source `.onnx` weights (under
-`models/peoplesemsegnet/vanilla_fresh/`) are. Rebuild it with `trtexec`
-(installed as part of TensorRT):
+`models/peoplesemsegnet/vanilla/`) are. Rebuild it with `trtexec` (installed
+as part of TensorRT):
 
 ```bash
-cd "$HOME/panda_real_ws/models/peoplesemsegnet"
+cd "$HOME/panda_real_ws/models/peoplesemsegnet/vanilla"
 mkdir -p 1
 /usr/src/tensorrt/bin/trtexec \
-  --onnx=vanilla_fresh/peoplesemsegnet_deployable_vanilla_unet_onnx_v2.0.2/peoplesemsegnet_vanilla_unet_dynamic_etlt_fp32.onnx \
+  --onnx=peoplesemsegnet_vanilla_unet_dynamic_etlt_fp32.onnx \
   --saveEngine=1/model_vanilla_v2_0_2.plan \
   --fp16
 ```
@@ -164,7 +164,7 @@ ros2 launch panda_camera_alignment aruco_align.launch.py \
 #### Terminal 4 — People segmentation + nvblox + Panda/human distance
 
 `vanilla_engine_file_path` already defaults to
-`~/panda_real_ws/models/peoplesemsegnet/1/model_vanilla_v2_0_2.plan`; pass
+`~/panda_real_ws/models/peoplesemsegnet/vanilla/1/model_vanilla_v2_0_2.plan`; pass
 it explicitly only if your engine lives elsewhere.
 
 ```bash
