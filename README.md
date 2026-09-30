@@ -63,11 +63,25 @@ sudo apt install \
   ros-humble-realsense2-camera
 ```
 
+`ros-humble-realsense2-camera` doesn't pull in the camera's udev rules, so
+without this the RealSense fails to open with a libusb/permission error:
+
+```bash
+sudo mkdir -p /etc/apt/keyrings
+curl -sSf https://librealsense.realsenseai.com/Debian/librealsense.pgp \
+  | sudo tee /etc/apt/keyrings/librealsenseai.gpg > /dev/null
+echo "deb [signed-by=/etc/apt/keyrings/librealsenseai.gpg] https://librealsense.realsenseai.com/Debian/apt-repo jammy main" \
+  | sudo tee /etc/apt/sources.list.d/librealsense.list
+sudo apt update
+sudo apt install librealsense2-udev-rules librealsense2-utils
+```
+
 ### 3. libfranka 0.9.2
 
 ```bash
 sudo apt remove ros-humble-libfranka   # wrong version for Panda, if present
 sudo apt install ros-humble-ros2-controllers ros-humble-joint-trajectory-controller
+sudo apt install build-essential cmake git libpoco-dev libeigen3-dev
 
 git clone --recursive https://github.com/frankarobotics/libfranka.git ~/libfranka
 cd ~/libfranka
@@ -107,11 +121,16 @@ vcs import src < franka_arm_ros2.repos
 # real-camera depth pipeline needs it.
 rm -f src/isaac_ros_nvblox/nvblox_examples/realsense_splitter/COLCON_IGNORE
 
+rosdep install --from-paths src --ignore-src -y
+
 colcon build --symlink-install \
   --packages-up-to panda_pick_place panda_real_bringup realsense_splitter \
   --cmake-args -DFranka_DIR="$HOME/libfranka/build" -DBUILD_TESTING=OFF
 source install/setup.bash
 ```
+
+On a memory-constrained board (e.g. Jetson), add `--parallel-workers 1` to
+`colcon build` if it gets OOM-killed compiling nvblox_ros's CUDA code.
 
 ### 6. Regenerate the TensorRT engine
 
@@ -158,6 +177,8 @@ ros2 launch nvblox_examples_bringup realsense.launch.py \
 
 #### Terminal 3 — ArUco camera alignment
 
+Needs a printed ArUco marker, dictionary `DICT_6X6_250`, id `30`, 5 cm per
+side, fixed to `panda_link0` (the robot base) and visible to the camera.
 `mode:=dynamic` while the mount isn't fixed yet; `mode:=static
 num_samples:=15` once it's permanently mounted.
 
@@ -196,8 +217,11 @@ rviz2 -d ~/panda_real_ws/src/my_people_nvblox_bringup/config/visualization/panda
 
 #### Terminal 6 (optional) — Pick-and-place motion
 
-Ctrl+C once returns home then stops; twice halts in place. Waypoints,
-speed, and gripper force are in `panda_pick_place/config/pick_place.yaml`.
+`pick_place.yaml`'s waypoints are joint angles calibrated (via
+`compute_waypoints.py`) for this specific desk/mount arrangement — on a
+different setup, recompute them before running, or the arm may reach for a
+pose that collides with something or isn't reachable at all. Ctrl+C once
+returns home then stops; twice halts in place.
 
 ```bash
 ros2 run panda_pick_place pick_place_node --ros-args \
