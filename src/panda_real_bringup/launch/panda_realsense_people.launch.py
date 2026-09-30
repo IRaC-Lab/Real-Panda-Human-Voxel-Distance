@@ -11,11 +11,13 @@ def generate_launch_description() -> LaunchDescription:
     args.add_arg('run_realsense', True, cli=True)
     args.add_arg('run_alignment', True, cli=True)
     args.add_arg('run_rviz', True, cli=True)
-    # Set False when no Panda is connected (desktop + camera only). Also drives
-    # the default global_frame below, since panda_link0 only exists when the
-    # franka driver is running.
+    # Set False when no Panda is connected (desktop + camera only).
     args.add_arg('run_panda', True, cli=True)
-    args.add_arg('global_frame', 'panda_link0', cli=True)
+    # Empty means "pick automatically from run_panda" (see _launch_setup): panda_link0
+    # only exists once the franka driver is up, so a Panda-less run needs a frame the
+    # camera publishes on its own instead -- camera0_link (see the realsense_splitter
+    # patch's base_frame_id fix). Pass this explicitly only to override that choice.
+    args.add_arg('global_frame', '', cli=True)
     args.add_arg(
         'alignment_mode', 'static', choices=['static', 'dynamic'], cli=True)
     # Real-robot deployments only run the vanilla PeopleSemSegNet model;
@@ -28,7 +30,17 @@ def generate_launch_description() -> LaunchDescription:
     args.add_arg(
         'segmentation_output_binding_names', '["argmax_1"]', cli=True)
 
-    actions = args.get_launch_actions()
+    return LaunchDescription(
+        args.get_launch_actions() + [OpaqueFunction(function=_launch_setup, args=[args])])
+
+
+def _launch_setup(context, args: lu.ArgumentContainer) -> list:
+    run_panda = args.run_panda.perform(context).lower() in ('true', '1')
+    global_frame = args.global_frame.perform(context)
+    if not global_frame:
+        global_frame = 'panda_link0' if run_panda else 'camera0_link'
+
+    actions = []
     actions.append(lu.component_container(
         NVBLOX_CONTAINER_NAME, condition=IfCondition(args.run_realsense)))
 
@@ -92,11 +104,11 @@ def generate_launch_description() -> LaunchDescription:
             segmentation_config,
             realsense_config,
             {
-                'global_frame': args.global_frame,
+                'global_frame': global_frame,
                 'num_cameras': 1,
                 'use_lidar': False,
                 'workspace_height_bounds_visualization_attachment_frame_id':
-                    args.global_frame,
+                    global_frame,
             },
         ],
         remappings=[
@@ -114,35 +126,34 @@ def generate_launch_description() -> LaunchDescription:
         ])
     actions.append(lu.load_composable_nodes(NVBLOX_CONTAINER_NAME, [nvblox_node]))
 
-    panda_config = lu.get_path(
-        'my_people_nvblox_bringup', 'config/panda_spheres.yaml')
-    actions.append(
-        Node(
-            package='my_people_nvblox_bringup',
-            executable='panda_voxel_classifier',
-            name='panda_voxel_classifier',
-            parameters=[
-                panda_config,
-                {
-                    'voxel_frame': args.global_frame,
-                    'voxel_template_path': str(lu.get_path(
-                        'my_people_nvblox_bringup',
-                        'config/panda_collision_voxels.npz')),
-                },
-            ],
-            condition=IfCondition(args.run_panda),
-            output='screen'))
-    actions.append(
-        Node(
-            package='my_people_nvblox_bringup',
-            executable='closest_panda_human_voxels',
-            name='closest_panda_human_voxels',
-            parameters=[
-                panda_config,
-                {'camera_info_topic': '/camera0/camera/color/camera_info'},
-            ],
-            condition=IfCondition(args.run_panda),
-            output='screen'))
+    if run_panda:
+        panda_config = lu.get_path(
+            'my_people_nvblox_bringup', 'config/panda_spheres.yaml')
+        actions.append(
+            Node(
+                package='my_people_nvblox_bringup',
+                executable='panda_voxel_classifier',
+                name='panda_voxel_classifier',
+                parameters=[
+                    panda_config,
+                    {
+                        'voxel_frame': global_frame,
+                        'voxel_template_path': str(lu.get_path(
+                            'my_people_nvblox_bringup',
+                            'config/panda_collision_voxels.npz')),
+                    },
+                ],
+                output='screen'))
+        actions.append(
+            Node(
+                package='my_people_nvblox_bringup',
+                executable='closest_panda_human_voxels',
+                name='closest_panda_human_voxels',
+                parameters=[
+                    panda_config,
+                    {'camera_info_topic': '/camera0/camera/color/camera_info'},
+                ],
+                output='screen'))
 
     actions.append(
         Node(
@@ -154,4 +165,4 @@ def generate_launch_description() -> LaunchDescription:
             condition=IfCondition(args.run_rviz),
             output='screen'))
 
-    return LaunchDescription(actions)
+    return actions

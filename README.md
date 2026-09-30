@@ -66,8 +66,8 @@ FCI expects:
 sudo apt remove ros-humble-libfranka   # if present: wrong version for Panda
 sudo apt install ros-humble-ros2-controllers ros-humble-joint-trajectory-controller
 
-git clone --recursive https://github.com/frankarobotics/libfranka.git ~/libfranka
-cd ~/libfranka
+git clone --recursive https://github.com/frankarobotics/libfranka.git ~/franka_legacy/libfranka
+cd ~/franka_legacy/libfranka
 git checkout 0.9.2
 git submodule update --init --recursive
 mkdir build && cd build
@@ -78,7 +78,7 @@ cmake --build . -j"$(nproc)"
 ### 4. `~/.bashrc` environment
 
 ```bash
-export LD_LIBRARY_PATH="$HOME/libfranka/build:${LD_LIBRARY_PATH:-}"
+export LD_LIBRARY_PATH="$HOME/franka_legacy/libfranka/build:${LD_LIBRARY_PATH:-}"
 
 # Discard inherited ROS overlays before loading this workspace.
 unset AMENT_PREFIX_PATH CMAKE_PREFIX_PATH COLCON_PREFIX_PATH ROS_PACKAGE_PATH PYTHONPATH
@@ -102,11 +102,18 @@ cd "$HOME/panda_real_ws"
 vcs import src < isaac_ros_nvblox.repos
 git -C src/isaac_ros_nvblox submodule update --init --recursive
 git -C src/isaac_ros_nvblox apply patches/nvblox_skip_empty_deletion.patch
+git -C src/isaac_ros_nvblox apply patches/realsense_camera_topic_namespace.patch
+git -C src/isaac_ros_nvblox apply patches/vanilla_segmentation_preprocessing.patch
 vcs import src < franka_arm_ros2.repos
 
+# Upstream ships this package COLCON_IGNORE'd by default; the real-camera depth
+# pipeline (Terminal 2/4) needs it to split depth/infra1/infra2 off the RealSense
+# driver's combined stream.
+rm -f src/isaac_ros_nvblox/nvblox_examples/realsense_splitter/COLCON_IGNORE
+
 colcon build --symlink-install \
-  --packages-up-to panda_pick_place panda_real_bringup \
-  --cmake-args -DFranka_DIR="$HOME/libfranka/build" -DBUILD_TESTING=OFF
+  --packages-up-to panda_pick_place panda_real_bringup realsense_splitter \
+  --cmake-args -DFranka_DIR="$HOME/franka_legacy/libfranka/build" -DBUILD_TESTING=OFF
 source install/setup.bash
 ```
 
@@ -133,21 +140,31 @@ Drop `--fp16` to build an FP32 engine instead.
 
 ## Run
 
-Five terminals. On the Desk web UI, activate FCI before Terminal 1.
+Each terminal starts with `source_real_ws` (the `.bashrc` helper from Step 4).
+Pick ONE of the two setups below — they don't share terminals, and
+`panda_realsense_people.launch.py` picks the right TF frame (`panda_link0` vs
+`camera0_link`) automatically from `run_panda`, so nothing else changes
+between them.
+
+### With the Panda arm (Desktop + Panda + RealSense)
+
+On the Desk web UI, activate FCI before Terminal 1.
 
 #### Terminal 1 — Panda driver + TF + pick-and-place controller
 
 ```bash
+source_real_ws
 ros2 launch panda_pick_place panda_control.launch.py robot_ip:=172.16.0.2
 ```
 
 #### Terminal 2 — RealSense
 
 ```bash
+source_real_ws
 ros2 launch nvblox_examples_bringup realsense.launch.py \
   run_standalone:=True \
-  color_profile:=1280x720x15 \
-  depth_profile:=848x480x15
+  color_profile:=848x480x30 \
+  depth_profile:=848x480x30
 ```
 
 #### Terminal 3 — ArUco camera alignment
@@ -156,6 +173,7 @@ Use `mode:=dynamic` while the camera mount isn't fixed yet; switch to
 `mode:=static` (with `num_samples:=15`) once it's permanently mounted.
 
 ```bash
+source_real_ws
 ros2 launch panda_camera_alignment aruco_align.launch.py \
   mode:=dynamic \
   camera_mount_frame:=camera0_link
@@ -168,6 +186,7 @@ ros2 launch panda_camera_alignment aruco_align.launch.py \
 it explicitly only if your engine lives elsewhere.
 
 ```bash
+source_real_ws
 ros2 launch panda_real_bringup panda_realsense_people.launch.py \
   run_realsense:=False \
   run_alignment:=False \
@@ -179,6 +198,7 @@ ros2 launch panda_real_bringup panda_realsense_people.launch.py \
 Full monitoring view:
 
 ```bash
+source_real_ws
 rviz2 -d ~/panda_real_ws/src/panda_real_bringup/config/panda_realsense_people.rviz
 ```
 
@@ -187,6 +207,7 @@ no camera/segmentation required — just Terminal 1 and Terminal 4's TF-driven
 nodes):
 
 ```bash
+source_real_ws
 rviz2 -d ~/panda_real_ws/src/my_people_nvblox_bringup/config/visualization/panda_sphere_debug.rviz
 ```
 
@@ -198,8 +219,44 @@ instead). See `panda_pick_place/config/pick_place.yaml` to adjust waypoints,
 speed, and gripper force before running on real hardware.
 
 ```bash
+source_real_ws
 ros2 run panda_pick_place pick_place_node --ros-args \
   --params-file ~/panda_real_ws/src/panda_pick_place/config/pick_place.yaml
+```
+
+### Camera-only, no Panda (Desktop + RealSense)
+
+For testing the perception stack on its own. `run_panda:=False` disables the
+Panda-only nodes and switches nvblox's `global_frame` to `camera0_link`
+automatically — no other arguments change.
+
+#### Terminal 1 — RealSense
+
+```bash
+source_real_ws
+ros2 launch nvblox_examples_bringup realsense.launch.py \
+  run_standalone:=True \
+  color_profile:=848x480x30 \
+  depth_profile:=848x480x30
+```
+
+#### Terminal 2 — People segmentation + nvblox
+
+```bash
+source_real_ws
+ros2 launch panda_real_bringup panda_realsense_people.launch.py \
+  run_realsense:=False \
+  run_alignment:=False \
+  run_rviz:=False \
+  run_panda:=False
+```
+
+#### Terminal 3 — Color + depth overlay preview
+
+```bash
+source_real_ws
+ros2 run rqt_image_view rqt_image_view /nvblox_node/dynamic_color_frame_overlay &
+ros2 run rqt_image_view rqt_image_view /nvblox_node/dynamic_depth_frame_overlay
 ```
 
 ### Known gaps

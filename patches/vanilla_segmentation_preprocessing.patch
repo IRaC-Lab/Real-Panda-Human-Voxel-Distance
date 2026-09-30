@@ -1,0 +1,84 @@
+diff --git a/nvblox_examples/nvblox_examples_bringup/launch/perception/segmentation.launch.py b/nvblox_examples/nvblox_examples_bringup/launch/perception/segmentation.launch.py
+index d912c20..26f1ffb 100644
+--- a/nvblox_examples/nvblox_examples_bringup/launch/perception/segmentation.launch.py
++++ b/nvblox_examples/nvblox_examples_bringup/launch/perception/segmentation.launch.py
+@@ -93,7 +93,27 @@ def create_segmentation_pipeline(args: lu.ArgumentContainer,
+     # people_segmentation shall only be either vanilla or shuffleseg, exception shall be caught
+     # in the start of thisfunction
+     else:
+-        # DnnImageEncoderNode duplicates output twice on RealSense live
++        # PeopleSemSegNet Vanilla (deployable_vanilla_unet_onnx_v2.0.2) expects BGR input
++        # normalized to [-1, 1]: (pixel - 127.5) / 127.5. Verified against NVIDIA's own
++        # DeepStream pgie config for this model (model-color-format=1, net-scale-factor
++        # =0.007843, offsets=127.5). scale=True below gives [0,1]; the normalize node
++        # below then maps [0,1] -> [-1,1] via mean=0.5/stddev=0.5, equivalent to the
++        # DeepStream formula.
++        people_color_conversion_node = ComposableNode(
++            name='image_format_converter_node',
++            package='isaac_ros_image_proc',
++            plugin='nvidia::isaac_ros::image_proc::ImageFormatConverterNode',
++            namespace=namespace,
++            parameters=[{
++                'image_width': args.network_image_width,
++                'image_height': args.network_image_height,
++                'encoding_desired': 'bgr8',
++            }],
++            remappings=[
++                ('image_raw', output_resized_image_topic),
++                ('image', 'segmentation/image_bgr'),
++            ]
++        )
+         people_preprocessing_node = ComposableNode(
+             name='image_to_tensor_node',
+             package='isaac_ros_tensor_proc',
+@@ -101,12 +121,27 @@ def create_segmentation_pipeline(args: lu.ArgumentContainer,
+             namespace=namespace,
+             parameters=[{
+                 'scale': True,
+-                # First tensor belongs to image
+-                'tensor_name': args.input_tensor_names[0],
++                'tensor_name': 'image',
++            }],
++            remappings=[
++                ('image', 'segmentation/image_bgr'),
++                ('tensor', 'segmentation/image_to_tensor_output'),
++            ]
++        )
++        people_normalize_node = ComposableNode(
++            name='normalize_node',
++            package='isaac_ros_tensor_proc',
++            plugin='nvidia::isaac_ros::dnn_inference::ImageTensorNormalizeNode',
++            namespace=namespace,
++            parameters=[{
++                'mean': [0.5, 0.5, 0.5],
++                'stddev': [0.5, 0.5, 0.5],
++                'input_tensor_name': 'image',
++                'output_tensor_name': args.input_tensor_names[0],
+             }],
+             remappings=[
+-                ('image', output_resized_image_topic),
+                 ('tensor', 'segmentation/image_to_tensor_output'),
++                ('normalized_tensor', 'segmentation/normalized_tensor'),
+             ]
+         )
+         # NHWC -> NCHW
+@@ -122,7 +157,7 @@ def create_segmentation_pipeline(args: lu.ArgumentContainer,
+                 }
+             ],
+             remappings=[
+-                ('interleaved_tensor', 'segmentation/image_to_tensor_output'),
++                ('interleaved_tensor', 'segmentation/normalized_tensor'),
+                 ('planar_tensor', 'segmentation/tensor_input')
+             ],
+         )
+@@ -174,7 +209,9 @@ def create_segmentation_pipeline(args: lu.ArgumentContainer,
+         resize_node, people_preprocessing_node, people_tensor_rt_node, people_decoder_node
+     ]
+     if people_segmentation is NvbloxPeopleSegmentation.peoplesemsegnet_vanilla:
+-        nodes_list.append(people_bchw_node)
++        nodes_list.extend([
++            people_color_conversion_node, people_normalize_node, people_bchw_node
++        ])
+ 
+     if args.one_container_per_camera:
+         segmentation_node = ComposableNodeContainer(

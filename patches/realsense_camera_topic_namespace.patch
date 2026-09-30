@@ -1,0 +1,138 @@
+diff --git a/nvblox_examples/nvblox_examples_bringup/config/visualization/realsense_example.rviz b/nvblox_examples/nvblox_examples_bringup/config/visualization/realsense_example.rviz
+index b73349b..918f637 100644
+--- a/nvblox_examples/nvblox_examples_bringup/config/visualization/realsense_example.rviz
++++ b/nvblox_examples/nvblox_examples_bringup/config/visualization/realsense_example.rviz
+@@ -217,7 +217,7 @@ Visualization Manager:
+             Durability Policy: Volatile
+             History Policy: Keep Last
+             Reliability Policy: Best Effort
+-            Value: /camera0/color/image_raw
++            Value: /camera0/camera/color/image_raw
+           Value: true
+         - Alpha: 1
+           Autocompute Intensity Bounds: true
+diff --git a/nvblox_examples/nvblox_examples_bringup/launch/perception/nvblox.launch.py b/nvblox_examples/nvblox_examples_bringup/launch/perception/nvblox.launch.py
+index eb6f7be..821b94f 100644
+--- a/nvblox_examples/nvblox_examples_bringup/launch/perception/nvblox.launch.py
++++ b/nvblox_examples/nvblox_examples_bringup/launch/perception/nvblox.launch.py
+@@ -56,7 +56,8 @@ def get_realsense_remappings(mode: NvbloxMode, num_cameras: int = 1) -> List[Tup
+             # Only cam0 (i == 0) runs splitter.
+             remappings.append(
+                 (f'camera_{i}/depth/image', f'/camera{i}/realsense_splitter_node/output/depth'))
+-            remappings.append((f'camera_{i}/depth/camera_info', f'/camera{i}/depth/camera_info'))
++            remappings.append(
++                (f'camera_{i}/depth/camera_info', f'/camera{i}/camera/depth/camera_info'))
+         else:
+             remappings.append((f'camera_{i}/depth/image', f'/camera{i}/depth/image_rect_raw'))
+             remappings.append((f'camera_{i}/depth/camera_info', f'/camera{i}/depth/camera_info'))
+@@ -72,8 +73,10 @@ def get_realsense_remappings(mode: NvbloxMode, num_cameras: int = 1) -> List[Tup
+                 (f'camera_{i}/mask/camera_info', f'/camera{i}/segmentation/camera_info_resized'))
+ 
+         else:
+-            remappings.append((f'camera_{i}/color/image', f'/camera{i}/color/image_raw'))
+-            remappings.append((f'camera_{i}/color/camera_info', f'/camera{i}/color/camera_info'))
++            remappings.append(
++                (f'camera_{i}/color/image', f'/camera{i}/camera/color/image_raw'))
++            remappings.append(
++                (f'camera_{i}/color/camera_info', f'/camera{i}/camera/color/camera_info'))
+ 
+             if mode is NvbloxMode.people_detection:
+                 remappings.append((f'camera_{i}/mask/image', f'/camera{i}/detection/people_mask'))
+diff --git a/nvblox_examples/nvblox_examples_bringup/launch/perception/vslam.launch.py b/nvblox_examples/nvblox_examples_bringup/launch/perception/vslam.launch.py
+index a984c7c..0c8d643 100644
+--- a/nvblox_examples/nvblox_examples_bringup/launch/perception/vslam.launch.py
++++ b/nvblox_examples/nvblox_examples_bringup/launch/perception/vslam.launch.py
+@@ -32,8 +32,8 @@ def add_vslam(args: lu.ArgumentContainer) -> List[Action]:
+     # camera running cuVSLAM, even in the multi-camera case: we run *nvblox* on multiple
+     # cameras, but cuVSLAM on camera0 only.
+     realsense_remappings = [
+-        ('visual_slam/camera_info_0', '/camera0/infra1/camera_info'),
+-        ('visual_slam/camera_info_1', '/camera0/infra2/camera_info'),
++        ('visual_slam/camera_info_0', '/camera0/camera/infra1/camera_info'),
++        ('visual_slam/camera_info_1', '/camera0/camera/infra2/camera_info'),
+         ('visual_slam/image_0', '/camera0/realsense_splitter_node/output/infra_1'),
+         ('visual_slam/image_1', '/camera0/realsense_splitter_node/output/infra_2'),
+         ('visual_slam/imu', 'camera0/imu'),
+diff --git a/nvblox_examples/nvblox_examples_bringup/launch/sensors/realsense.launch.py b/nvblox_examples/nvblox_examples_bringup/launch/sensors/realsense.launch.py
+index 1025aaf..9928c95 100644
+--- a/nvblox_examples/nvblox_examples_bringup/launch/sensors/realsense.launch.py
++++ b/nvblox_examples/nvblox_examples_bringup/launch/sensors/realsense.launch.py
+@@ -36,10 +36,33 @@ def get_default_run_splitter_list(num_cameras: int) -> List[bool]:
+     return run_splitter_list
+ 
+ 
+-def get_camera_node(camera_name: str, config_file_path: str, serial_number: Optional[int] = None) -> ComposableNode:
++def get_camera_node(camera_name: str, config_file_path: str, color_profile: str,
++                    depth_profile: str,
++                    serial_number: Optional[int] = None) -> ComposableNode:
+     parameters = []
+     parameters.append(config_file_path)
++    # USB is already stable; avoid a reset that briefly makes /dev/video inaccessible.
++    parameters.append({'initial_reset': False})
+     parameters.append({'camera_name': camera_name})
++    # Leave base_frame_id at its default ('link'): the driver already prefixes every
++    # frame_id with camera_name itself, so an explicit '<camera_name>_link' here
++    # double-prefixes into '<camera_name>_<camera_name>_link' (verified live). The
++    # default alone combines with that auto-prefix into exactly '<camera_name>_link',
++    # which is what aruco_align's camera_mount_frame and nvblox's global_frame expect.
++    # This pipeline uses color/depth, not IMU or alternating emitter frames.
++    parameters.append({
++        'enable_accel': False,
++        'enable_gyro': False,
++        'unite_imu_method': 0,
++        'depth_module.emitter_on_off': False,
++    })
++    parameters.append({'rgb_camera.color_profile': color_profile})
++    parameters.append({'depth_module.depth_profile': depth_profile})
++    # Infra1/Infra2 and Depth all come from the same physical stereo sensor readout, so
++    # their resolution/fps must match depth's or the device silently delivers no frames
++    # at all on any stream (verified: mismatched infra/depth profiles reproduce
++    # "Frames didn't arrived within 5 seconds" on this camera/driver).
++    parameters.append({'depth_module.infra_profile': depth_profile})
+     if serial_number:
+         parameters.append({'serial_no': str(serial_number)})
+     realsense_node = ComposableNode(
+@@ -61,14 +84,14 @@ def get_splitter_node(camera_name: str) -> ComposableNode:
+             'output_qos': 'SENSOR_DATA'
+         }],
+         remappings=[
+-            ('input/infra_1', f'/{camera_name}/infra1/image_rect_raw'),
+-            ('input/infra_1_metadata', f'/{camera_name}/infra1/metadata'),
+-            ('input/infra_2', f'/{camera_name}/infra2/image_rect_raw'),
+-            ('input/infra_2_metadata', f'/{camera_name}/infra2/metadata'),
+-            ('input/depth', f'/{camera_name}/depth/image_rect_raw'),
+-            ('input/depth_metadata', f'/{camera_name}/depth/metadata'),
+-            ('input/pointcloud', f'/{camera_name}/depth/color/points'),
+-            ('input/pointcloud_metadata', f'/{camera_name}/depth/metadata'),
++            ('input/infra_1', f'/{camera_name}/camera/infra1/image_rect_raw'),
++            ('input/infra_1_metadata', f'/{camera_name}/camera/infra1/metadata'),
++            ('input/infra_2', f'/{camera_name}/camera/infra2/image_rect_raw'),
++            ('input/infra_2_metadata', f'/{camera_name}/camera/infra2/metadata'),
++            ('input/depth', f'/{camera_name}/camera/depth/image_rect_raw'),
++            ('input/depth_metadata', f'/{camera_name}/camera/depth/metadata'),
++            ('input/pointcloud', f'/{camera_name}/camera/depth/color/points'),
++            ('input/pointcloud_metadata', f'/{camera_name}/camera/depth/metadata'),
+         ])
+     return realsense_splitter_node
+ 
+@@ -106,6 +129,8 @@ def add_cameras(args: lu.ArgumentContainer) -> List[Action]:
+             get_camera_node(
+                 camera_name=camera_name,
+                 config_file_path=config_file_path,
++                color_profile=args.color_profile,
++                depth_profile=args.depth_profile,
+                 serial_number=camera_serial_number,
+         ))
+         # Splitter
+@@ -131,6 +156,11 @@ def generate_launch_description() -> LaunchDescription:
+     args.add_arg('run_standalone', 'False')
+     args.add_arg('camera_serial_numbers', '')
+     args.add_arg('num_cameras', 1)
++    args.add_arg('color_profile', '640x480x15', cli=True)
++    # Keep the same aspect ratio/resolution as color_profile by default so depth and color
++    # stay geometrically consistent (mismatched resolutions/aspect ratios between the two
++    # streams show up as stretched/squished depth-color overlays downstream).
++    args.add_arg('depth_profile', '640x480x15', cli=True)
+ 
+     # Adding the cameras
+     args.add_opaque_function(add_cameras)
