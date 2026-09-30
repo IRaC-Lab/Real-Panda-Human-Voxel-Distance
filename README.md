@@ -148,7 +148,23 @@ Activate FCI on the Desk web UI before Terminal 1.
 | 1 — Panda driver + TF + pick-and-place controller | `ros2 launch panda_pick_place panda_control.launch.py robot_ip:=172.16.0.2` |
 | 2 — RealSense | `ros2 launch nvblox_examples_bringup realsense.launch.py run_standalone:=True color_profile:=848x480x30 depth_profile:=848x480x30` |
 | 3 — ArUco camera alignment | `ros2 launch panda_camera_alignment aruco_align.launch.py mode:=dynamic camera_mount_frame:=camera0_link` |
-| 4 — People segmentation + nvblox + Panda/human distance | `ros2 launch panda_real_bringup panda_realsense_people.launch.py run_realsense:=False run_alignment:=False run_rviz:=False` |
+
+Terminal 4 — People segmentation + nvblox + Panda/human distance:
+
+```bash
+MODEL_DIR="$HOME/panda_real_ws/models/peoplesemsegnet/vanilla"
+
+ros2 launch panda_real_bringup panda_realsense_people.launch.py \
+  run_realsense:=False \
+  run_alignment:=False \
+  run_rviz:=False \
+  people_segmentation:=peoplesemsegnet_vanilla \
+  vanilla_engine_file_path:="$MODEL_DIR/1/model_vanilla_v2_0_2.plan" \
+  segmentation_output_binding_names:='["argmax_1"]'
+```
+
+| Terminal | Command |
+| --- | --- |
 | 5 — RViz | `rviz2 -d ~/panda_real_ws/src/panda_real_bringup/config/panda_realsense_people.rviz` |
 | 6 (optional) — Pick-and-place motion | `ros2 run panda_pick_place pick_place_node --ros-args --params-file ~/panda_real_ws/src/panda_pick_place/config/pick_place.yaml` |
 
@@ -156,6 +172,9 @@ Notes:
 
 - Terminal 3: `mode:=dynamic` while the mount isn't fixed yet, `mode:=static
   num_samples:=15` once it's permanently mounted.
+- Terminal 4: `vanilla_engine_file_path` and `segmentation_output_binding_names`
+  already match the launch file's own defaults — spelled out here so the
+  model/engine in use is visible at a glance, not hidden behind a default.
 - Terminal 5: lighter arm-only debug view (no camera needed) →
   `~/panda_real_ws/src/my_people_nvblox_bringup/config/visualization/panda_sphere_debug.rviz`.
 - Terminal 6: Ctrl+C once returns home then stops; twice halts in place.
