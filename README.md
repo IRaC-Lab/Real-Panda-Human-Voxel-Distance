@@ -180,16 +180,27 @@ python3 "$HOME/panda_real_ws/src/panda_pick_place/panda_pick_place/scripts/build
 
 ## Run
 
-Every terminal starts with `source_real_ws`. Two independent setups below —
-`panda_realsense_people.launch.py` picks the right nvblox `global_frame`
-(`panda_link0` vs `camera0_link`) automatically from `run_panda`, so nothing
-else changes between them.
+The two setups below use a desktop with a RealSense D435i at 424x240x30
+and the 424x240 segmentation profile. Build
+`model_vanilla_v2_0_2_424x240.plan` using
+[Installation step 6](#6-regenerate-the-tensorrt-engine) first.
+The launch default remains 960x544, so select `segmentation_resolution:=424x240`
+explicitly as shown below.
 
-### With the Panda arm
+Start **every terminal** with:
 
-Activate FCI on the Desk web UI before Terminal 1.
+```bash
+source_real_ws
+```
 
-#### Terminal 1 — Panda driver + TF + pick-and-place controller
+Use the same `ROS_DOMAIN_ID` in all terminals. For the default domain, run
+`unset ROS_DOMAIN_ID` in every terminal after sourcing the workspace.
+
+### Desktop + Panda + RealSense D435i
+
+Activate FCI on the Franka Desk web UI before starting Terminal 1.
+
+#### Terminal 1 — Real Panda driver + TF
 
 ```bash
 ros2 launch panda_pick_place panda_control.launch.py robot_ip:=172.16.0.2
@@ -200,16 +211,17 @@ ros2 launch panda_pick_place panda_control.launch.py robot_ip:=172.16.0.2
 ```bash
 ros2 launch nvblox_examples_bringup realsense.launch.py \
   run_standalone:=True \
-  color_profile:=848x480x30 \
-  depth_profile:=848x480x30
+  color_profile:=424x240x30 \
+  depth_profile:=424x240x30
 ```
 
 #### Terminal 3 — ArUco camera alignment
 
-Needs a printed ArUco marker, dictionary `DICT_6X6_250`, id `30`, 5 cm per
-side, fixed to `panda_link0` (the robot base) and visible to the camera.
-`mode:=dynamic` while the mount isn't fixed yet; `mode:=static
-num_samples:=15` once it's permanently mounted.
+Use a printed ArUco marker from dictionary `DICT_6X6_250`, ID `30`, with
+5 cm sides, fixed to `panda_link0` (the robot base) and visible to the
+camera. Run **one** of the following alignment modes.
+
+For continuous monitoring while adjusting the camera mount:
 
 ```bash
 ros2 launch panda_camera_alignment aruco_align.launch.py \
@@ -217,7 +229,30 @@ ros2 launch panda_camera_alignment aruco_align.launch.py \
   camera_mount_frame:=camera0_link
 ```
 
-#### Terminal 4 — People segmentation + nvblox + Panda/human distance
+For final operation after fixing the mount in place:
+
+```bash
+ros2 launch panda_camera_alignment aruco_align.launch.py \
+  mode:=static \
+  num_samples:=15 \
+  camera_mount_frame:=camera0_link
+```
+
+#### Terminal 4 — People segmentation + nvblox + Panda voxels and distance
+
+The selected resolution automatically chooses the matching engine:
+
+```bash
+ros2 launch panda_real_bringup panda_realsense_people.launch.py \
+  run_realsense:=False \
+  run_alignment:=False \
+  run_rviz:=False \
+  run_panda:=True \
+  segmentation_resolution:=424x240
+```
+
+Alternatively, specify the same engine and output binding explicitly.
+Run **one** of these Terminal 4 commands, not both:
 
 ```bash
 MODEL_DIR="$HOME/panda_real_ws/models/peoplesemsegnet/vanilla"
@@ -226,19 +261,23 @@ ros2 launch panda_real_bringup panda_realsense_people.launch.py \
   run_realsense:=False \
   run_alignment:=False \
   run_rviz:=False \
-  people_segmentation:=peoplesemsegnet_vanilla \
-  vanilla_engine_file_path:="$MODEL_DIR/1/model_vanilla_v2_0_2.plan" \
+  run_panda:=True \
+  segmentation_resolution:=424x240 \
+  vanilla_engine_file_path:="$MODEL_DIR/1/model_vanilla_v2_0_2_424x240.plan" \
   segmentation_output_binding_names:='["argmax_1"]'
 ```
 
-#### Terminal 5 — RViz
+`run_panda` defaults to `True`. With the Panda enabled and no explicit
+`global_frame`, the launch selects `panda_link0`. The command keeps
+`run_panda:=True` visible to distinguish this setup from the camera-only one.
+
+#### Terminal 5 — Full-system RViz
 
 ```bash
 rviz2 -d ~/panda_real_ws/src/panda_real_bringup/config/panda_realsense_people.rviz
 ```
 
-Lighter arm-only debug view (Panda RobotModel + collision spheres, no camera
-needed):
+For the Panda debug view, use this configuration instead:
 
 ```bash
 rviz2 -d ~/panda_real_ws/src/my_people_nvblox_bringup/config/visualization/panda_sphere_debug.rviz
@@ -257,11 +296,12 @@ ros2 run panda_pick_place pick_place_node --ros-args \
   --params-file ~/panda_real_ws/src/panda_pick_place/config/pick_place.yaml
 ```
 
-### Camera-only, no Panda
+### Desktop + RealSense D435i (no Panda)
 
-Debugs the people-detection pipeline (RealSense → segmentation → nvblox) on
-its own, without the arm or an FCI connection. `run_panda:=False` switches
-`global_frame` to `camera0_link` and skips the Panda-only nodes.
+This setup runs RealSense → segmentation → nvblox without a Panda or FCI
+connection. `run_panda:=False` selects `camera0_link` as `global_frame` and
+skips the Panda voxel and distance nodes. Start every terminal with
+`source_real_ws` as above.
 
 #### Terminal 1 — RealSense
 
@@ -279,10 +319,13 @@ ros2 launch panda_real_bringup panda_realsense_people.launch.py \
   run_realsense:=False \
   run_alignment:=False \
   run_rviz:=False \
-  run_panda:=False
+  run_panda:=False \
+  segmentation_resolution:=424x240
 ```
 
-#### Terminal 3 — Color + depth overlay preview
+#### Terminal 3 — Color + depth overlay previews
+
+Run both viewers in the same terminal:
 
 ```bash
 ros2 run rqt_image_view rqt_image_view /nvblox_node/dynamic_color_frame_overlay &
