@@ -24,6 +24,8 @@ setup(
         'console_scripts': [
             'pick_place_node = panda_pick_place.pick_place_node:main',
             'compute_waypoints = panda_pick_place.compute_waypoints:main',
+            'native_mask_node = panda_pick_place.native_mask_node:main',
+            'segmentation_input_node = panda_pick_place.segmentation_input_node:main',
         ],
     },
 )

@@ -12,14 +12,19 @@ index b73349b..918f637 100644
          - Alpha: 1
            Autocompute Intensity Bounds: true
 diff --git a/nvblox_examples/nvblox_examples_bringup/launch/perception/nvblox.launch.py b/nvblox_examples/nvblox_examples_bringup/launch/perception/nvblox.launch.py
-index eb6f7be..821b94f 100644
+index eb6f7be..cf823c6 100644
 --- a/nvblox_examples/nvblox_examples_bringup/launch/perception/nvblox.launch.py
 +++ b/nvblox_examples/nvblox_examples_bringup/launch/perception/nvblox.launch.py
-@@ -56,7 +56,8 @@ def get_realsense_remappings(mode: NvbloxMode, num_cameras: int = 1) -> List[Tup
-             # Only cam0 (i == 0) runs splitter.
+@@ -53,10 +53,11 @@ def get_realsense_remappings(mode: NvbloxMode, num_cameras: int = 1) -> List[Tup
+     remappings = []
+     for i in range(0, num_cameras):
+         if i == 0:
+-            # Only cam0 (i == 0) runs splitter.
++            # Read depth directly without requiring emitter-frame metadata.
              remappings.append(
-                 (f'camera_{i}/depth/image', f'/camera{i}/realsense_splitter_node/output/depth'))
+-                (f'camera_{i}/depth/image', f'/camera{i}/realsense_splitter_node/output/depth'))
 -            remappings.append((f'camera_{i}/depth/camera_info', f'/camera{i}/depth/camera_info'))
++                (f'camera_{i}/depth/image', f'/camera{i}/camera/depth/image_rect_raw'))
 +            remappings.append(
 +                (f'camera_{i}/depth/camera_info', f'/camera{i}/camera/depth/camera_info'))
          else:
@@ -54,28 +59,99 @@ index a984c7c..0c8d643 100644
          ('visual_slam/image_1', '/camera0/realsense_splitter_node/output/infra_2'),
          ('visual_slam/imu', 'camera0/imu'),
 diff --git a/nvblox_examples/nvblox_examples_bringup/launch/sensors/realsense.launch.py b/nvblox_examples/nvblox_examples_bringup/launch/sensors/realsense.launch.py
-index 1025aaf..9928c95 100644
+index 1025aaf..7f034d1 100644
 --- a/nvblox_examples/nvblox_examples_bringup/launch/sensors/realsense.launch.py
 +++ b/nvblox_examples/nvblox_examples_bringup/launch/sensors/realsense.launch.py
-@@ -36,10 +36,33 @@ def get_default_run_splitter_list(num_cameras: int) -> List[bool]:
+@@ -15,6 +15,9 @@
+ #
+ # SPDX-License-Identifier: Apache-2.0
+ 
++import fcntl
++import os
++from pathlib import Path
+ from typing import List, Optional
+ 
+ from isaac_ros_launch_utils.all_types import *
+@@ -30,16 +33,90 @@ EMITTER_ON_CONFIG_FILE_PATH = lu.get_path('nvblox_examples_bringup', 'config/sen
+ # - Run the splitter on camera0,
+ # - Don't run the splitter on the remaining cameras.
+ # NOTE(alexmillane, 16.08.2024): At the moment this is the *only* behaviour we support.
++# Read depth directly from the camera without emitter-frame splitting.
+ def get_default_run_splitter_list(num_cameras: int) -> List[bool]:
+     run_splitter_list = [False] * num_cameras
+-    run_splitter_list[0] = True
      return run_splitter_list
  
  
 -def get_camera_node(camera_name: str, config_file_path: str, serial_number: Optional[int] = None) -> ComposableNode:
++def reserve_camera(serial_number=None):
++    """Refuse a second local launch before it touches an active USB camera.
++
++    Resolve the USB serial from sysfs without opening librealsense. Keep a
++    process-owned advisory lock for the lifetime of ros2 launch, across domains.
++    Also detect video handles held by camera tools not using this launch file.
++    """
++    devices = {}
++    for video in Path('/sys/class/video4linux').glob('video*'):
++        for parent in (video / 'device').resolve().parents:
++            try:
++                if ((parent / 'idVendor').read_text().strip() == '8086'
++                        and (parent / 'idProduct').read_text().strip() == '0b3a'):
++                    serial = (parent / 'serial').read_text().strip()
++                    devices.setdefault(serial, set()).add('/dev/' + video.name)
++                    break
++            except OSError:
++                continue
++    serial = str(serial_number).lstrip('_') if serial_number else None
++    if serial is None and len(devices) == 1:
++        serial = next(iter(devices))
++    key = serial or 'automatic'
++    if not key.replace('-', '').isalnum():
++        raise RuntimeError('Invalid RealSense camera serial number')
++    lock_path = f'/tmp/nvblox_realsense_{os.getuid()}_{key}.lock'
++    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
++    try:
++        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
++    except BlockingIOError:
++        os.close(fd)
++        raise RuntimeError('RealSense camera is already reserved by another launch. '
++                           'Stop the previous camera launch before starting a new one.') from None
++    try:
++        nodes = devices.get(serial, set()) if serial else set().union(*devices.values())
++        for proc in Path('/proc').iterdir():
++            if not proc.name.isdigit() or int(proc.name) == os.getpid():
++                continue
++            try:
++                for handle in (proc / 'fd').iterdir():
++                    try:
++                        target = os.readlink(handle)
++                    except OSError:
++                        continue
++                    if target in nodes:
++                        raise RuntimeError(f'RealSense camera is already open by PID {proc.name}. '
++                                           'Stop that camera application before retrying.')
++            except (FileNotFoundError, PermissionError):
++                continue
++        os.ftruncate(fd, 0)
++        os.write(fd, str(os.getpid()).encode())
++    except BaseException:
++        os.close(fd)
++        raise
++    # Raw descriptors are deliberately held until the launch process exits.
++    return fd
++
++
 +def get_camera_node(camera_name: str, config_file_path: str, color_profile: str,
 +                    depth_profile: str,
 +                    serial_number: Optional[int] = None) -> ComposableNode:
++    reserve_camera(serial_number)
      parameters = []
      parameters.append(config_file_path)
-+    # USB is already stable; avoid a reset that briefly makes /dev/video inaccessible.
++    # Start streaming without resetting the USB device.
 +    parameters.append({'initial_reset': False})
      parameters.append({'camera_name': camera_name})
-+    # Leave base_frame_id at its default ('link'): the driver already prefixes every
-+    # frame_id with camera_name itself, so an explicit '<camera_name>_link' here
-+    # double-prefixes into '<camera_name>_<camera_name>_link' (verified live). The
-+    # default alone combines with that auto-prefix into exactly '<camera_name>_link',
-+    # which is what aruco_align's camera_mount_frame and nvblox's global_frame expect.
-+    # This pipeline uses color/depth, not IMU or alternating emitter frames.
++    # Let the driver prefix its default 'link' frame with camera_name.
++    # Use color/depth without IMU or alternating emitter frames.
 +    parameters.append({
 +        'enable_accel': False,
 +        'enable_gyro': False,
@@ -84,15 +160,12 @@ index 1025aaf..9928c95 100644
 +    })
 +    parameters.append({'rgb_camera.color_profile': color_profile})
 +    parameters.append({'depth_module.depth_profile': depth_profile})
-+    # Infra1/Infra2 and Depth all come from the same physical stereo sensor readout, so
-+    # their resolution/fps must match depth's or the device silently delivers no frames
-+    # at all on any stream (verified: mismatched infra/depth profiles reproduce
-+    # "Frames didn't arrived within 5 seconds" on this camera/driver).
++    # Use matching depth and infrared profiles for the stereo sensor.
 +    parameters.append({'depth_module.infra_profile': depth_profile})
      if serial_number:
          parameters.append({'serial_no': str(serial_number)})
      realsense_node = ComposableNode(
-@@ -61,14 +84,14 @@ def get_splitter_node(camera_name: str) -> ComposableNode:
+@@ -61,14 +138,14 @@ def get_splitter_node(camera_name: str) -> ComposableNode:
              'output_qos': 'SENSOR_DATA'
          }],
          remappings=[
@@ -115,7 +188,7 @@ index 1025aaf..9928c95 100644
          ])
      return realsense_splitter_node
  
-@@ -106,6 +129,8 @@ def add_cameras(args: lu.ArgumentContainer) -> List[Action]:
+@@ -106,6 +183,8 @@ def add_cameras(args: lu.ArgumentContainer) -> List[Action]:
              get_camera_node(
                  camera_name=camera_name,
                  config_file_path=config_file_path,
@@ -124,7 +197,7 @@ index 1025aaf..9928c95 100644
                  serial_number=camera_serial_number,
          ))
          # Splitter
-@@ -131,6 +156,11 @@ def generate_launch_description() -> LaunchDescription:
+@@ -131,6 +210,11 @@ def generate_launch_description() -> LaunchDescription:
      args.add_arg('run_standalone', 'False')
      args.add_arg('camera_serial_numbers', '')
      args.add_arg('num_cameras', 1)

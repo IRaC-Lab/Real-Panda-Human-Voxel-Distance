@@ -1,8 +1,18 @@
 diff --git a/nvblox_examples/nvblox_examples_bringup/launch/perception/segmentation.launch.py b/nvblox_examples/nvblox_examples_bringup/launch/perception/segmentation.launch.py
-index d912c20..26f1ffb 100644
+index d912c20..56efb8a 100644
 --- a/nvblox_examples/nvblox_examples_bringup/launch/perception/segmentation.launch.py
 +++ b/nvblox_examples/nvblox_examples_bringup/launch/perception/segmentation.launch.py
-@@ -93,7 +93,27 @@ def create_segmentation_pipeline(args: lu.ArgumentContainer,
+@@ -63,7 +63,8 @@ def create_segmentation_pipeline(args: lu.ArgumentContainer,
+             'output_width': args.network_image_width,
+             'output_height': args.network_image_height,
+             'keep_aspect_ratio': False,
+-            'input_qos': 'SENSOR_DATA',
++            'encoding_desired': 'rgb8',
++            'input_qos': args.input_qos,
+         }],
+         remappings=[
+             ('image', input_topic),
+@@ -93,7 +94,27 @@ def create_segmentation_pipeline(args: lu.ArgumentContainer,
      # people_segmentation shall only be either vanilla or shuffleseg, exception shall be caught
      # in the start of thisfunction
      else:
@@ -31,19 +41,20 @@ index d912c20..26f1ffb 100644
          people_preprocessing_node = ComposableNode(
              name='image_to_tensor_node',
              package='isaac_ros_tensor_proc',
-@@ -101,12 +121,27 @@ def create_segmentation_pipeline(args: lu.ArgumentContainer,
+@@ -101,14 +122,29 @@ def create_segmentation_pipeline(args: lu.ArgumentContainer,
              namespace=namespace,
              parameters=[{
                  'scale': True,
 -                # First tensor belongs to image
 -                'tensor_name': args.input_tensor_names[0],
 +                'tensor_name': 'image',
-+            }],
-+            remappings=[
+             }],
+             remappings=[
+-                ('image', output_resized_image_topic),
 +                ('image', 'segmentation/image_bgr'),
-+                ('tensor', 'segmentation/image_to_tensor_output'),
-+            ]
-+        )
+                 ('tensor', 'segmentation/image_to_tensor_output'),
+             ]
+         )
 +        people_normalize_node = ComposableNode(
 +            name='normalize_node',
 +            package='isaac_ros_tensor_proc',
@@ -54,15 +65,16 @@ index d912c20..26f1ffb 100644
 +                'stddev': [0.5, 0.5, 0.5],
 +                'input_tensor_name': 'image',
 +                'output_tensor_name': args.input_tensor_names[0],
-             }],
-             remappings=[
--                ('image', output_resized_image_topic),
-                 ('tensor', 'segmentation/image_to_tensor_output'),
++            }],
++            remappings=[
++                ('tensor', 'segmentation/image_to_tensor_output'),
 +                ('normalized_tensor', 'segmentation/normalized_tensor'),
-             ]
-         )
++            ]
++        )
          # NHWC -> NCHW
-@@ -122,7 +157,7 @@ def create_segmentation_pipeline(args: lu.ArgumentContainer,
+         people_bchw_node = ComposableNode(
+             name='interleaved_to_planar_node',
+@@ -122,7 +158,7 @@ def create_segmentation_pipeline(args: lu.ArgumentContainer,
                  }
              ],
              remappings=[
@@ -71,7 +83,7 @@ index d912c20..26f1ffb 100644
                  ('planar_tensor', 'segmentation/tensor_input')
              ],
          )
-@@ -174,7 +209,9 @@ def create_segmentation_pipeline(args: lu.ArgumentContainer,
+@@ -174,7 +210,9 @@ def create_segmentation_pipeline(args: lu.ArgumentContainer,
          resize_node, people_preprocessing_node, people_tensor_rt_node, people_decoder_node
      ]
      if people_segmentation is NvbloxPeopleSegmentation.peoplesemsegnet_vanilla:
@@ -79,6 +91,16 @@ index d912c20..26f1ffb 100644
 +        nodes_list.extend([
 +            people_color_conversion_node, people_normalize_node, people_bchw_node
 +        ])
- 
+
      if args.one_container_per_camera:
          segmentation_node = ComposableNodeContainer(
+@@ -256,6 +294,9 @@ def generate_launch_description() -> LaunchDescription:
+         '["camera0/segmentation/camera_info_resized"]',
+         description='List of output resized camera info topics for each segmentation pipeline')
+
++    args.add_arg('input_qos', 'SENSOR_DATA',
++                 description='QoS for the paired segmentation image and camera info')
++
+     # DNN Image preprocessing parameters
+     args.add_arg('network_image_width', SEMSEGNET_INPUT_IMAGE_WIDTH,
+                  description='Number of columns for network input tensor image')
