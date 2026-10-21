@@ -1,0 +1,215 @@
+{
+  "description": "30 FPS camera: resize alone versus full native mapping pipeline without bounded input",
+  "duration_seconds": 20,
+  "ros_domain": 83,
+  "resize_only": {
+    "time": "2026-10-14T14:47:20.899719+09:00",
+    "duration_seconds": 20.0,
+    "qos": "best_effort",
+    "note": "Observer subscriptions can add ROS serialization work; header age includes all upstream processing, not stage-only latency.",
+    "topics": {
+      "/camera0/camera/color/image_raw": {
+        "frames": 600,
+        "fps": 30.0,
+        "unique_stamps": 600,
+        "header_age_samples": 600,
+        "header_age_median_ms": 33.6,
+        "header_age_p95_ms": 34.0,
+        "image": {
+          "width": 424,
+          "height": 240,
+          "encoding": "rgb8"
+        }
+      },
+      "/camera0/camera/depth/image_rect_raw": {
+        "frames": 600,
+        "fps": 30.0,
+        "unique_stamps": 600,
+        "header_age_samples": 600,
+        "header_age_median_ms": 9.1,
+        "header_age_p95_ms": 11.7,
+        "image": {
+          "width": 424,
+          "height": 240,
+          "encoding": "16UC1"
+        }
+      },
+      "/camera0/segmentation/image_resized": {
+        "frames": 574,
+        "fps": 28.7,
+        "unique_stamps": 574,
+        "header_age_samples": 574,
+        "header_age_median_ms": 40.9,
+        "header_age_p95_ms": 43.4,
+        "image": {
+          "width": 960,
+          "height": 544,
+          "encoding": "rgb8"
+        }
+      },
+      "/camera0/segmentation/image_bgr": {
+        "frames": 0,
+        "fps": 0.0,
+        "unique_stamps": 0,
+        "header_age_samples": 0,
+        "header_age_median_ms": null,
+        "header_age_p95_ms": null,
+        "image": null
+      },
+      "/camera0/segmentation/people_mask": {
+        "frames": 0,
+        "fps": 0.0,
+        "unique_stamps": 0,
+        "header_age_samples": 0,
+        "header_age_median_ms": null,
+        "header_age_p95_ms": null,
+        "image": null
+      },
+      "/camera0/unet/colored_segmentation_mask": {
+        "frames": 0,
+        "fps": 0.0,
+        "unique_stamps": 0,
+        "header_age_samples": 0,
+        "header_age_median_ms": null,
+        "header_age_p95_ms": null,
+        "image": null
+      },
+      "/nvblox_node/dynamic_color_frame_overlay": {
+        "frames": 0,
+        "fps": 0.0,
+        "unique_stamps": 0,
+        "header_age_samples": 0,
+        "header_age_median_ms": null,
+        "header_age_p95_ms": null,
+        "image": null
+      },
+      "/nvblox_node/dynamic_depth_frame_overlay": {
+        "frames": 0,
+        "fps": 0.0,
+        "unique_stamps": 0,
+        "header_age_samples": 0,
+        "header_age_median_ms": null,
+        "header_age_p95_ms": null,
+        "image": null
+      }
+    }
+  },
+  "native_unbounded": {
+    "time": "2026-10-14T14:48:01.981888+09:00",
+    "duration_seconds": 20.0,
+    "qos": "best_effort",
+    "note": "Observer subscriptions can add ROS serialization work; header age includes all upstream processing, not stage-only latency.",
+    "topics": {
+      "/camera0/camera/color/image_raw": {
+        "frames": 600,
+        "fps": 30.0,
+        "unique_stamps": 600,
+        "header_age_samples": 600,
+        "header_age_median_ms": 33.4,
+        "header_age_p95_ms": 34.8,
+        "image": {
+          "width": 424,
+          "height": 240,
+          "encoding": "rgb8"
+        }
+      },
+      "/camera0/camera/depth/image_rect_raw": {
+        "frames": 599,
+        "fps": 29.95,
+        "unique_stamps": 599,
+        "header_age_samples": 599,
+        "header_age_median_ms": 8.7,
+        "header_age_p95_ms": 9.9,
+        "image": {
+          "width": 424,
+          "height": 240,
+          "encoding": "16UC1"
+        }
+      },
+      "/camera0/segmentation/image_resized": {
+        "frames": 375,
+        "fps": 18.75,
+        "unique_stamps": 375,
+        "header_age_samples": 375,
+        "header_age_median_ms": 129.9,
+        "header_age_p95_ms": 203.3,
+        "image": {
+          "width": 960,
+          "height": 544,
+          "encoding": "rgb8"
+        }
+      },
+      "/camera0/segmentation/image_bgr": {
+        "frames": 410,
+        "fps": 20.5,
+        "unique_stamps": 410,
+        "header_age_samples": 410,
+        "header_age_median_ms": 162.4,
+        "header_age_p95_ms": 245.9,
+        "image": {
+          "width": 960,
+          "height": 544,
+          "encoding": "bgr8"
+        }
+      },
+      "/camera0/segmentation/people_mask": {
+        "frames": 235,
+        "fps": 11.75,
+        "unique_stamps": 235,
+        "header_age_samples": 235,
+        "header_age_median_ms": 851.7,
+        "header_age_p95_ms": 1026.1,
+        "image": {
+          "width": 960,
+          "height": 544,
+          "encoding": "mono8"
+        }
+      },
+      "/camera0/unet/colored_segmentation_mask": {
+        "frames": 189,
+        "fps": 9.45,
+        "unique_stamps": 189,
+        "header_age_samples": 189,
+        "header_age_median_ms": 901.9,
+        "header_age_p95_ms": 1090.1,
+        "image": {
+          "width": 960,
+          "height": 544,
+          "encoding": "rgb8"
+        }
+      },
+      "/nvblox_node/dynamic_color_frame_overlay": {
+        "frames": 256,
+        "fps": 12.8,
+        "unique_stamps": 256,
+        "header_age_samples": 256,
+        "header_age_median_ms": 944.9,
+        "header_age_p95_ms": 1108.5,
+        "image": {
+          "width": 424,
+          "height": 240,
+          "encoding": "rgba8"
+        }
+      },
+      "/nvblox_node/dynamic_depth_frame_overlay": {
+        "frames": 255,
+        "fps": 12.75,
+        "unique_stamps": 255,
+        "header_age_samples": 255,
+        "header_age_median_ms": 927.2,
+        "header_age_p95_ms": 1102.1,
+        "image": {
+          "width": 424,
+          "height": 240,
+          "encoding": "rgba8"
+        }
+      }
+    }
+  },
+  "notes": [
+    "Best Effort observed receive FPS; not isolated operation throughput.",
+    "Standalone resize test does not run inference or nvblox.",
+    "Full pipeline keeps original 960x544 engine and native mapping; input gate disabled.",
+    "Default bounded input remains enabled."
+  ]
+}

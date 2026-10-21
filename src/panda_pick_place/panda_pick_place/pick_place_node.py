@@ -5,6 +5,7 @@ import sys
 
 from control_msgs.action import FollowJointTrajectory
 from franka_msgs.action import Grasp, Move
+from franka_msgs.srv import ErrorRecovery
 import rclpy
 from rclpy.action import ActionClient
 from rclpy.signals import SignalHandlerOptions
@@ -43,6 +44,8 @@ class PickPlaceNode(Node):
             self, FollowJointTrajectory, '/panda_arm_controller/follow_joint_trajectory')
         self.gripper_move = ActionClient(self, Move, '/panda_gripper/move')
         self.gripper_grasp = ActionClient(self, Grasp, '/panda_gripper/grasp')
+        self.error_recovery = self.create_client(
+            ErrorRecovery, '/error_recovery_service_server/error_recovery')
 
         self.current = None
         self.active_arm_goal = None
@@ -74,9 +77,36 @@ class PickPlaceNode(Node):
         self.get_logger().info('Waiting for joint states...')
         while rclpy.ok() and self.current is None:
             rclpy.spin_once(self, timeout_sec=0.1)
-        return rclpy.ok()
+        if not rclpy.ok():
+            return False
+        return self.clear_robot_error()
+
+    def clear_robot_error(self):
+        """Clear a latched franka_hardware error, if any.
+
+        A reflex abort (e.g. communication_constraints_violation) latches an
+        error flag in franka_hardware that silently drops every hardware write
+        until explicitly cleared via this service - the controller keeps
+        reporting trajectory goals as successful even though the arm never
+        moves. Call this before every move, not just once at startup, since a
+        reflex can happen mid-sequence too.
+        """
+        while rclpy.ok() and not self.error_recovery.wait_for_service(timeout_sec=1.0):
+            pass
+        if not rclpy.ok():
+            return False
+        result = self._wait(self.error_recovery.call_async(ErrorRecovery.Request()))
+        # The service reports success=False with error="No errors" when there was
+        # nothing to recover from, which is the common case, not a failure.
+        if result is None or not (result.success or result.error == 'No errors'):
+            self.get_logger().error(
+                f'Error recovery failed: {result.error if result else "no response"}')
+            return False
+        return True
 
     def move_to(self, name):
+        if not self.clear_robot_error():
+            return False
         target = self.waypoints[name]
         distance = max(abs(t - c) for t, c in zip(target, self.current))
         duration = max(distance / self.get_parameter('max_joint_speed').value,

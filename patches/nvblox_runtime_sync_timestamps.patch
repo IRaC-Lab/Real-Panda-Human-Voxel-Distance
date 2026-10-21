@@ -1,0 +1,122 @@
+diff --git a/nvblox_ros/include/nvblox_ros/nvblox_node.hpp b/nvblox_ros/include/nvblox_ros/nvblox_node.hpp
+index d3c8d3b..07d2a30 100644
+--- a/nvblox_ros/include/nvblox_ros/nvblox_node.hpp
++++ b/nvblox_ros/include/nvblox_ros/nvblox_node.hpp
+@@ -198,10 +198,12 @@ protected:
+ 
+   // Publish the dynamic outputs
+   void publishDynamics(
+-    const std::string & camera_frame_id);
++    const std::string & camera_frame_id, const rclcpp::Time & depth_image_timestamp);
+ 
+   // Publish human debug output
+-  void publishHumanDebugOutput(const std::string & camera_frame_id, const Camera & camera);
++  void publishHumanDebugOutput(
++    const std::string & camera_frame_id, const Camera & camera,
++    const rclcpp::Time & depth_image_timestamp);
+ 
+   // Publish the back projected depth image for debug purposes
+   void publishBackProjectedDepth(
+@@ -360,7 +362,13 @@ protected:
+   using image_mask_exact_sync = ::message_filters::Synchronizer<image_mask_exact_policy>;
+ 
+   std::vector<std::shared_ptr<image_mask_approx_sync>> timesync_depth_mask_;
+-  std::vector<std::shared_ptr<image_mask_exact_sync>> timesync_color_mask_;
++  // Approximate (not exact) like timesync_depth_mask_ above: the color image's
++  // and the segmentation mask's timestamps are never bit-identical in this
++  // pipeline (some stage in resize/tensor/TRT/decode doesn't preserve the
++  // stamp exactly), so ExactTime essentially never matched - color+mask sync
++  // callback fired at ~0 Hz while depth+mask (already ApproximateTime) ran
++  // fine (verified live via print_rates_to_console).
++  std::vector<std::shared_ptr<image_mask_approx_sync>> timesync_color_mask_;
+   std::vector<std::shared_ptr<image_exact_sync>> timesync_depth_;
+   std::vector<std::shared_ptr<image_exact_sync>> timesync_color_;
+ 
+diff --git a/nvblox_ros/src/lib/nvblox_node.cpp b/nvblox_ros/src/lib/nvblox_node.cpp
+index 2ecd218..8165125 100644
+--- a/nvblox_ros/src/lib/nvblox_node.cpp
++++ b/nvblox_ros/src/lib/nvblox_node.cpp
+@@ -221,7 +221,12 @@ void NvbloxNode::subscribeToTopics()
+   esdf_service_queue_ = std::make_unique<std::list<EsdfServiceQueuedType>>();
+   file_path_service_queue_ = std::make_unique<std::list<FilePathServiceQueuedType>>();
+ 
+-  constexpr int kQueueSize = 10;
++  // Depth arrives at ~47 Hz while the segmentation mask it has to pair with only
++  // arrives at ~16 Hz (FP32 TensorRT inference). With a queue of 10, depth frames
++  // get evicted before their matching mask shows up, so the depth+mask sync almost
++  // never fires (measured: ~1 match per 15 s, vs ~14 for color, whose input rate is
++  // much closer to the mask's). Hold enough frames to cover that rate gap.
++  constexpr int kQueueSize = 60;
+ 
+   if (!params_.use_depth && !params_.use_lidar) {
+     RCLCPP_WARN(
+@@ -315,8 +320,8 @@ void NvbloxNode::subscribeToTopics()
+             input_qos_profile));
+         // Sync color and segmentation images with their camera infos
+         timesync_color_mask_.emplace_back(
+-          std::make_shared<image_mask_exact_sync>(
+-            image_mask_exact_sync(kQueueSize), *color_image_subs_.back(),
++          std::make_shared<image_mask_approx_sync>(
++            image_mask_approx_sync(kQueueSize), *color_image_subs_.back(),
+             *color_camera_info_subs_.back(),
+             *segmentation_image_subs_.back(), *segmentation_camera_info_subs_.back()));
+ 
+@@ -1067,12 +1072,12 @@ bool NvbloxNode::processDepthImage(const ImageTypeVariant & depth_msg)
+     // TODO(dtingdahl) Move this into the publishLayers() function so we publish visualization
+     // messages at the same place (and separated from processing)
+     timing::Timer dynamic_publishing_timer("ros/depth/output/dynamics");
+-    publishDynamics(depth_frame);
++    publishDynamics(depth_frame, depth_image_timestamp);
+     dynamic_publishing_timer.Stop();
+   }
+   if (isHumanMapping(params_.mapping_type)) {
+     timing::Timer depth_overlay_timer("ros/depth/output/human_overlay");
+-    publishHumanDebugOutput(mask_frame, depth_camera_);
++    publishHumanDebugOutput(mask_frame, depth_camera_, depth_image_timestamp);
+     depth_overlay_timer.Stop();
+   }
+   // Publish back projected depth image for debugging
+@@ -1093,7 +1098,8 @@ bool NvbloxNode::processDepthImage(const ImageTypeVariant & depth_msg)
+   return true;
+ }
+ 
+-void NvbloxNode::publishDynamics(const std::string & camera_frame_id)
++void NvbloxNode::publishDynamics(
++  const std::string & camera_frame_id, const rclcpp::Time & depth_image_timestamp)
+ {
+   // Publish the dynamic pointcloud
+   if (dynamic_points_publisher_->get_subscription_count() > 0) {
+@@ -1112,11 +1118,16 @@ void NvbloxNode::publishDynamics(const std::string & camera_frame_id)
+     conversions::imageMessageFromColorImage(
+       dynamic_overlay, camera_frame_id, &img_msg,
+       *cuda_stream_);
++    // Carry the source depth frame's capture stamp so subscribers can measure
++    // true end-to-end (capture -> overlay) latency instead of seeing stamp=0.
++    img_msg.header.stamp = depth_image_timestamp;
+     dynamic_depth_frame_overlay_publisher_->publish(img_msg);
+   }
+ }
+ 
+-void NvbloxNode::publishHumanDebugOutput(const std::string & camera_frame_id, const Camera & camera)
++void NvbloxNode::publishHumanDebugOutput(
++  const std::string & camera_frame_id, const Camera & camera,
++  const rclcpp::Time & depth_image_timestamp)
+ {
+   timing::Timer ros_human_total_timer("ros/humans");
+   timing::Timer ros_human_debug_timer("ros/humans/output/debug");
+@@ -1151,6 +1162,7 @@ void NvbloxNode::publishHumanDebugOutput(const std::string & camera_frame_id, co
+     conversions::imageMessageFromColorImage(
+       depth_overlay, camera_frame_id, &img_msg,
+       *cuda_stream_);
++    img_msg.header.stamp = depth_image_timestamp;
+     dynamic_depth_frame_overlay_publisher_->publish(img_msg);
+   }
+ }
+@@ -1268,6 +1280,7 @@ bool NvbloxNode::processColorImage(const ImageTypeVariant & color_msg)
+       conversions::imageMessageFromColorImage(
+         color_overlay, color_frame, &img_msg,
+         *cuda_stream_);
++      img_msg.header.stamp = color_image_timestamp;
+       color_frame_overlay_publisher_->publish(img_msg);
+       color_overlay_timer.Stop();
+     }

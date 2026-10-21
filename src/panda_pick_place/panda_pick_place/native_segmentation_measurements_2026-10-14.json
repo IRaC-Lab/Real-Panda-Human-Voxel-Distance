@@ -1,0 +1,282 @@
+{
+  "description": "424x240 external model IO, internal 448x256 zero padding and output crop, unchanged weights",
+  "stages": {
+    "time": "2026-10-14T15:10:13.970938+09:00",
+    "duration_seconds": 20.0,
+    "qos": "best_effort",
+    "note": "Observer subscriptions can add ROS serialization work; header age includes all upstream processing, not stage-only latency.",
+    "topics": {
+      "/camera0/camera/color/image_raw": {
+        "frames": 599,
+        "fps": 29.95,
+        "unique_stamps": 599,
+        "header_age_samples": 599,
+        "header_age_median_ms": 33.7,
+        "header_age_p95_ms": 35.0,
+        "image": {
+          "width": 424,
+          "height": 240,
+          "encoding": "rgb8"
+        }
+      },
+      "/camera0/camera/depth/image_rect_raw": {
+        "frames": 598,
+        "fps": 29.9,
+        "unique_stamps": 598,
+        "header_age_samples": 598,
+        "header_age_median_ms": 8.9,
+        "header_age_p95_ms": 10.3,
+        "image": {
+          "width": 424,
+          "height": 240,
+          "encoding": "16UC1"
+        }
+      },
+      "/camera0/segmentation/image_resized": {
+        "frames": 597,
+        "fps": 29.85,
+        "unique_stamps": 597,
+        "header_age_samples": 597,
+        "header_age_median_ms": 38.7,
+        "header_age_p95_ms": 50.6,
+        "image": {
+          "width": 424,
+          "height": 240,
+          "encoding": "rgb8"
+        }
+      },
+      "/camera0/segmentation/image_bgr": {
+        "frames": 598,
+        "fps": 29.9,
+        "unique_stamps": 598,
+        "header_age_samples": 598,
+        "header_age_median_ms": 43.4,
+        "header_age_p95_ms": 59.7,
+        "image": {
+          "width": 424,
+          "height": 240,
+          "encoding": "bgr8"
+        }
+      },
+      "/camera0/segmentation/people_mask": {
+        "frames": 596,
+        "fps": 29.8,
+        "unique_stamps": 596,
+        "header_age_samples": 596,
+        "header_age_median_ms": 69.2,
+        "header_age_p95_ms": 103.7,
+        "image": {
+          "width": 424,
+          "height": 240,
+          "encoding": "mono8"
+        }
+      },
+      "/camera0/unet/colored_segmentation_mask": {
+        "frames": 593,
+        "fps": 29.65,
+        "unique_stamps": 593,
+        "header_age_samples": 593,
+        "header_age_median_ms": 73.3,
+        "header_age_p95_ms": 127.6,
+        "image": {
+          "width": 424,
+          "height": 240,
+          "encoding": "rgb8"
+        }
+      },
+      "/nvblox_node/dynamic_color_frame_overlay": {
+        "frames": 599,
+        "fps": 29.95,
+        "unique_stamps": 599,
+        "header_age_samples": 599,
+        "header_age_median_ms": 111.2,
+        "header_age_p95_ms": 156.8,
+        "image": {
+          "width": 424,
+          "height": 240,
+          "encoding": "rgba8"
+        }
+      },
+      "/nvblox_node/dynamic_depth_frame_overlay": {
+        "frames": 596,
+        "fps": 29.8,
+        "unique_stamps": 596,
+        "header_age_samples": 596,
+        "header_age_median_ms": 108.8,
+        "header_age_p95_ms": 149.3,
+        "image": {
+          "width": 424,
+          "height": 240,
+          "encoding": "rgba8"
+        }
+      }
+    }
+  },
+  "final_five": {
+    "time": "2026-10-14T15:10:56.250328+09:00",
+    "duration_seconds": 20.0,
+    "qos": "best_effort",
+    "note": "Observer subscriptions can add ROS serialization work; header age includes all upstream processing, not stage-only latency.",
+    "topics": {
+      "/camera0/camera/color/image_raw": {
+        "frames": 599,
+        "fps": 29.95,
+        "unique_stamps": 599,
+        "header_age_samples": 599,
+        "header_age_median_ms": 33.6,
+        "header_age_p95_ms": 34.5,
+        "image": {
+          "width": 424,
+          "height": 240,
+          "encoding": "rgb8"
+        }
+      },
+      "/camera0/camera/depth/image_rect_raw": {
+        "frames": 600,
+        "fps": 30.0,
+        "unique_stamps": 600,
+        "header_age_samples": 600,
+        "header_age_median_ms": 9.1,
+        "header_age_p95_ms": 9.4,
+        "image": {
+          "width": 424,
+          "height": 240,
+          "encoding": "16UC1"
+        }
+      },
+      "/camera0/unet/colored_segmentation_mask": {
+        "frames": 599,
+        "fps": 29.95,
+        "unique_stamps": 599,
+        "header_age_samples": 599,
+        "header_age_median_ms": 62.9,
+        "header_age_p95_ms": 94.5,
+        "image": {
+          "width": 424,
+          "height": 240,
+          "encoding": "rgb8"
+        }
+      },
+      "/nvblox_node/dynamic_color_frame_overlay": {
+        "frames": 600,
+        "fps": 30.0,
+        "unique_stamps": 600,
+        "header_age_samples": 600,
+        "header_age_median_ms": 98.1,
+        "header_age_p95_ms": 107.8,
+        "image": {
+          "width": 424,
+          "height": 240,
+          "encoding": "rgba8"
+        }
+      },
+      "/nvblox_node/dynamic_depth_frame_overlay": {
+        "frames": 600,
+        "fps": 30.0,
+        "unique_stamps": 600,
+        "header_age_samples": 600,
+        "header_age_median_ms": 95.3,
+        "header_age_p95_ms": 105.5,
+        "image": {
+          "width": 424,
+          "height": 240,
+          "encoding": "rgba8"
+        }
+      }
+    }
+  },
+  "same_frame_reference_comparison": {
+    "original_input": [
+      1,
+      3,
+      544,
+      960
+    ],
+    "candidate_input": [
+      1,
+      3,
+      240,
+      424
+    ],
+    "candidate_output": [
+      1,
+      240,
+      424,
+      1
+    ],
+    "samples": [
+      {
+        "frame": 0,
+        "pixel_agreement": 0.8255994496855346,
+        "reference_person_pixels": 5468,
+        "candidate_person_pixels": 22687,
+        "person_iou": 0.22674393272624285,
+        "reference_foreground_recall": 0.9517190929041697
+      },
+      {
+        "frame": 1,
+        "pixel_agreement": 0.870626965408805,
+        "reference_person_pixels": 7842,
+        "candidate_person_pixels": 20731,
+        "person_iou": 0.3691599980832814,
+        "reference_foreground_recall": 0.9824024483550114
+      },
+      {
+        "frame": 2,
+        "pixel_agreement": 0.9132075471698113,
+        "reference_person_pixels": 14293,
+        "candidate_person_pixels": 22311,
+        "person_iou": 0.6112333832203539,
+        "reference_foreground_recall": 0.9715245224935283
+      },
+      {
+        "frame": 3,
+        "pixel_agreement": 0.9177771226415095,
+        "reference_person_pixels": 15395,
+        "candidate_person_pixels": 22488,
+        "person_iou": 0.6381837837837838,
+        "reference_foreground_recall": 0.9586229295225722
+      },
+      {
+        "frame": 4,
+        "pixel_agreement": 0.8963345125786164,
+        "reference_person_pixels": 15331,
+        "candidate_person_pixels": 24628,
+        "person_iou": 0.5822839946147145,
+        "reference_foreground_recall": 0.9591676994325223
+      },
+      {
+        "frame": 5,
+        "pixel_agreement": 0.8930227987421384,
+        "reference_person_pixels": 14836,
+        "candidate_person_pixels": 24480,
+        "person_iou": 0.566312099119557,
+        "reference_foreground_recall": 0.9581423564303047
+      },
+      {
+        "frame": 6,
+        "pixel_agreement": 0.8807979559748428,
+        "reference_person_pixels": 17290,
+        "candidate_person_pixels": 27908,
+        "person_iou": 0.5768210996371755,
+        "reference_foreground_recall": 0.9562753036437247
+      },
+      {
+        "frame": 7,
+        "pixel_agreement": 0.8946737421383648,
+        "reference_person_pixels": 17115,
+        "candidate_person_pixels": 26381,
+        "person_iou": 0.6046039768325525,
+        "reference_foreground_recall": 0.957581069237511
+      }
+    ]
+  },
+  "standalone_mean_gpu_ms": 14.291,
+  "engine_path": "/home/esjin/panda_real_ws/models/peoplesemsegnet/vanilla/1/model_vanilla_v2_0_2_424x240.plan",
+  "default_resolution": "960x544",
+  "component_threshold": 390,
+  "notes": [
+    "Existing mask is a reference, not ground truth.",
+    "Best Effort receive rates and header ages include observer and upstream costs."
+  ]
+}

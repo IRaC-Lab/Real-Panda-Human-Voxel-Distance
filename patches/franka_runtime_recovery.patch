@@ -1,0 +1,94 @@
+diff --git a/README.md b/README.md
+index e140427..32cb9dd 100644
+--- a/README.md
++++ b/README.md
+@@ -32,6 +32,7 @@ The original version is forked from mcbed's port of franka_ros2 for [humble][mcb
+ 
+ ## Known issues
+ * Joint position controller might cause some bad motor behaviors. Suggest using torque or velocity for now.
++* `FrankaRobotStateBroadcaster::update()` ignores the `frequency` parameter (default 30 Hz) and attempts to publish on every `controller_manager` update cycle (1000 Hz) instead. When the `RealtimePublisher`'s background publish thread can't keep up, `trylock()` fails and `update()` silently returns `controller_interface::return_type::ERROR` with no log message, which `controller_manager` reports only as `The update call of the following controller returned an error: 'franka_robot_state_broadcaster'`. This is independent of real-time kernel / CPU governor tuning — it reproduces on both a stock PREEMPT kernel and a PREEMPT_RT kernel, and got slightly worse on PREEMPT_RT (more consistent 1000 Hz scheduling means more frequent `trylock()` contention). Fix: throttle the publish attempt in `update()` to the configured `frequency` using the passed-in `time`, only resetting on `on_activate()`. Patched locally in `franka_robot_state_broadcaster/{include/franka_robot_state_broadcaster/franka_robot_state_broadcaster.hpp,src/franka_robot_state_broadcaster.cpp}`; not yet upstreamed.
+ 
+ 
+ ## Priority list
+diff --git a/franka_hardware/src/franka_error_recovery_service_server.cpp b/franka_hardware/src/franka_error_recovery_service_server.cpp
+index d7d23bb..65a5768 100644
+--- a/franka_hardware/src/franka_error_recovery_service_server.cpp
++++ b/franka_hardware/src/franka_error_recovery_service_server.cpp
+@@ -22,7 +22,7 @@ void FrankaErrorRecoveryServiceServer::triggerAutomaticRecovery(const franka_msg
+                                                                 const franka_msgs::srv::ErrorRecovery::Response::SharedPtr& response)
+ {
+     if(!this->robot_->hasError()){
+-        RCLCPP_INFO(this->get_logger(), "No errors detected; error recovery is not necessary.");
++        RCLCPP_DEBUG(this->get_logger(), "No errors detected; error recovery is not necessary.");
+         response->error = "No errors";
+         response->success = false;
+     }
+diff --git a/franka_hardware/src/franka_hardware_interface.cpp b/franka_hardware/src/franka_hardware_interface.cpp
+index c289b27..13f2d99 100644
+--- a/franka_hardware/src/franka_hardware_interface.cpp
++++ b/franka_hardware/src/franka_hardware_interface.cpp
+@@ -152,10 +152,13 @@ hardware_interface::return_type FrankaHardwareInterface::write(const rclcpp::Tim
+ 
+ 
+   if(robot_->hasError()){
+-    //RCLCPP_INFO(getLogger(), "write error");
+-    // as soon as an error is returned, it prevents read/write from running in the control node loop.
+-    // Need a way to make it recover from it...
+-    //return hardware_interface::return_type::ERROR; 
++    // As soon as an error is latched, every write is silently dropped until
++    // ~/error_recovery is called, so commanded motion just does nothing with no
++    // other indication. Log it (throttled, this runs at control-loop rate) so a
++    // stuck robot is visible instead of silently never moving.
++    static rclcpp::Clock clock(RCL_STEADY_TIME);
++    RCLCPP_WARN_THROTTLE(getLogger(), clock, 1000,
++        "Reflex error not recovered - arm won't move. Call ~/error_recovery.");
+     return hardware_interface::return_type::OK;
+   }
+   robot_->write(hw_commands_joint_effort, 
+diff --git a/franka_robot_state_broadcaster/include/franka_robot_state_broadcaster/franka_robot_state_broadcaster.hpp b/franka_robot_state_broadcaster/include/franka_robot_state_broadcaster/franka_robot_state_broadcaster.hpp
+index ce19296..f428936 100644
+--- a/franka_robot_state_broadcaster/include/franka_robot_state_broadcaster/franka_robot_state_broadcaster.hpp
++++ b/franka_robot_state_broadcaster/include/franka_robot_state_broadcaster/franka_robot_state_broadcaster.hpp
+@@ -52,6 +52,8 @@ class FrankaRobotStateBroadcaster : public controller_interface::ControllerInter
+     std::unique_ptr<franka_semantic_components::FrankaRobotState> franka_robot_state;
+     size_t arm_count;
+     int frequency;
++    rclcpp::Time last_publish_time;
++    bool first_update{true};
+ };
+ 
+ } // namespace franka_robot_state_broadcaster
+\ No newline at end of file
+diff --git a/franka_robot_state_broadcaster/src/franka_robot_state_broadcaster.cpp b/franka_robot_state_broadcaster/src/franka_robot_state_broadcaster.cpp
+index cb246e7..050a867 100644
+--- a/franka_robot_state_broadcaster/src/franka_robot_state_broadcaster.cpp
++++ b/franka_robot_state_broadcaster/src/franka_robot_state_broadcaster.cpp
+@@ -62,6 +62,7 @@ controller_interface::CallbackReturn FrankaRobotStateBroadcaster::on_configure(
+ controller_interface::CallbackReturn FrankaRobotStateBroadcaster::on_activate(
+     const rclcpp_lifecycle::State& /*previous_state*/) {
+   franka_robot_state->assign_loaned_state_interfaces(state_interfaces_);
++  first_update = true;
+   return CallbackReturn::SUCCESS;
+ }
+ 
+@@ -88,6 +89,11 @@ FrankaRobotStateBroadcaster::state_interface_configuration() const {
+ controller_interface::return_type FrankaRobotStateBroadcaster::update(
+     const rclcpp::Time& time,
+     const rclcpp::Duration& /*period*/) {
++  if (!first_update && frequency > 0 &&
++      (time - last_publish_time) < rclcpp::Duration::from_seconds(1.0 / frequency)) {
++    return controller_interface::return_type::OK;
++  }
++
+   if (realtime_franka_state_publisher && realtime_franka_state_publisher->trylock()) {
+     realtime_franka_state_publisher->msg_.header.stamp = time;
+ 
+@@ -98,6 +104,8 @@ controller_interface::return_type FrankaRobotStateBroadcaster::update(
+       return controller_interface::return_type::ERROR;
+     }
+     realtime_franka_state_publisher->unlockAndPublish();
++    last_publish_time = time;
++    first_update = false;
+     return controller_interface::return_type::OK;
+ 
+   } else {

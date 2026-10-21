@@ -40,7 +40,11 @@
     # lidar settings
     use_lidar: false
     # Input queues
-    maximum_input_queue_length: 8
+    maximum_input_queue_length: 3
+    # Debug timing breakdown (temporary, for latency investigation)
+    print_timings_to_console: true
+    print_rates_to_console: true
+    print_statistics_on_console_period_ms: 5000
     # Map clearing settings
     map_clearing_radius_m: 7.0 # no map clearing if < 0.0
     map_clearing_frame_id: "base_link"
@@ -66,7 +70,7 @@
       do_depth_preprocessing: false
       depth_preprocessing_num_dilations: 3
       # projective integrator (tsdf/color/occupancy)
-      projective_integrator_max_integration_distance_m: 5.0
+      projective_integrator_max_integration_distance_m: 3.0
       projective_integrator_truncation_distance_vox: 4.0
       projective_integrator_weighting_mode: "inverse_square_tsdf_distance_penalty"
       projective_integrator_max_weight: 5.0

@@ -17,6 +17,7 @@
   <exec_depend>nvblox_ros_python_utils</exec_depend>
   <exec_depend>nvblox_rviz_plugin</exec_depend>
   <exec_depend>panda_camera_alignment</exec_depend>
+  <exec_depend>panda_pick_place</exec_depend>
   <exec_depend>realsense2_camera</exec_depend>
   <exec_depend>rviz2</exec_depend>
 

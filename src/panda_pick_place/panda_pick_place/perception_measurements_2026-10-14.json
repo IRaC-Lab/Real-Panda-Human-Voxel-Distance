@@ -1,0 +1,606 @@
+{
+  "setup": {
+    "date": "2026-10-14",
+    "timezone": "Asia/Seoul",
+    "camera": "D435i",
+    "hardware": "Jetson AGX Orin",
+    "power_mode": "MODE_50W",
+    "gpu_max_hz": 816000000,
+    "raw_rgb": "424x240x30",
+    "raw_depth": "424x240x30",
+    "ros_domain": 83,
+    "model_input": "960x544",
+    "max_segmentation_in_flight": 3,
+    "original_engine_retained": true
+  },
+  "measurements": {
+    "baseline_stages": {
+      "time": "2026-10-14T14:17:15.808019+09:00",
+      "duration_seconds": 20.0,
+      "qos": "best_effort",
+      "note": "Observer subscriptions can add ROS serialization work; header age includes all upstream processing, not stage-only latency.",
+      "topics": {
+        "/camera0/camera/color/image_raw": {
+          "frames": 597,
+          "fps": 29.85,
+          "unique_stamps": 597,
+          "header_age_samples": 597,
+          "header_age_median_ms": 33.4,
+          "header_age_p95_ms": 34.4,
+          "image": {
+            "width": 424,
+            "height": 240,
+            "encoding": "rgb8"
+          }
+        },
+        "/camera0/camera/depth/image_rect_raw": {
+          "frames": 600,
+          "fps": 30.0,
+          "unique_stamps": 600,
+          "header_age_samples": 600,
+          "header_age_median_ms": 8.8,
+          "header_age_p95_ms": 9.6,
+          "image": {
+            "width": 424,
+            "height": 240,
+            "encoding": "16UC1"
+          }
+        },
+        "/camera0/segmentation/image_resized": {
+          "frames": 394,
+          "fps": 19.7,
+          "unique_stamps": 394,
+          "header_age_samples": 394,
+          "header_age_median_ms": 131.8,
+          "header_age_p95_ms": 216.0,
+          "image": {
+            "width": 960,
+            "height": 544,
+            "encoding": "rgb8"
+          }
+        },
+        "/camera0/segmentation/image_bgr": {
+          "frames": 451,
+          "fps": 22.55,
+          "unique_stamps": 451,
+          "header_age_samples": 451,
+          "header_age_median_ms": 165.2,
+          "header_age_p95_ms": 238.5,
+          "image": {
+            "width": 960,
+            "height": 544,
+            "encoding": "bgr8"
+          }
+        },
+        "/camera0/segmentation/people_mask": {
+          "frames": 250,
+          "fps": 12.5,
+          "unique_stamps": 250,
+          "header_age_samples": 250,
+          "header_age_median_ms": 837.7,
+          "header_age_p95_ms": 937.5,
+          "image": {
+            "width": 960,
+            "height": 544,
+            "encoding": "mono8"
+          }
+        },
+        "/camera0/unet/colored_segmentation_mask": {
+          "frames": 207,
+          "fps": 10.35,
+          "unique_stamps": 207,
+          "header_age_samples": 207,
+          "header_age_median_ms": 881.8,
+          "header_age_p95_ms": 1026.9,
+          "image": {
+            "width": 960,
+            "height": 544,
+            "encoding": "rgb8"
+          }
+        },
+        "/nvblox_node/dynamic_color_frame_overlay": {
+          "frames": 196,
+          "fps": 9.8,
+          "unique_stamps": 196,
+          "header_age_samples": 196,
+          "header_age_median_ms": 929.0,
+          "header_age_p95_ms": 1030.8,
+          "image": {
+            "width": 960,
+            "height": 544,
+            "encoding": "rgba8"
+          }
+        },
+        "/nvblox_node/dynamic_depth_frame_overlay": {
+          "frames": 253,
+          "fps": 12.65,
+          "unique_stamps": 253,
+          "header_age_samples": 253,
+          "header_age_median_ms": 891.0,
+          "header_age_p95_ms": 998.4,
+          "image": {
+            "width": 424,
+            "height": 240,
+            "encoding": "rgba8"
+          }
+        }
+      }
+    },
+    "optimized_stages": {
+      "time": "2026-10-14T14:13:26.143740+09:00",
+      "duration_seconds": 20.0,
+      "qos": "best_effort",
+      "note": "Observer subscriptions can add ROS serialization work; header age includes all upstream processing, not stage-only latency.",
+      "topics": {
+        "/camera0/camera/color/image_raw": {
+          "frames": 599,
+          "fps": 29.95,
+          "unique_stamps": 599,
+          "header_age_samples": 599,
+          "header_age_median_ms": 33.3,
+          "header_age_p95_ms": 34.0,
+          "image": {
+            "width": 424,
+            "height": 240,
+            "encoding": "rgb8"
+          }
+        },
+        "/camera0/camera/depth/image_rect_raw": {
+          "frames": 600,
+          "fps": 30.0,
+          "unique_stamps": 600,
+          "header_age_samples": 600,
+          "header_age_median_ms": 8.8,
+          "header_age_p95_ms": 9.2,
+          "image": {
+            "width": 424,
+            "height": 240,
+            "encoding": "16UC1"
+          }
+        },
+        "/camera0/segmentation/image_resized": {
+          "frames": 213,
+          "fps": 10.65,
+          "unique_stamps": 213,
+          "header_age_samples": 213,
+          "header_age_median_ms": 100.5,
+          "header_age_p95_ms": 170.9,
+          "image": {
+            "width": 960,
+            "height": 544,
+            "encoding": "rgb8"
+          }
+        },
+        "/camera0/segmentation/image_bgr": {
+          "frames": 206,
+          "fps": 10.3,
+          "unique_stamps": 206,
+          "header_age_samples": 206,
+          "header_age_median_ms": 120.1,
+          "header_age_p95_ms": 186.5,
+          "image": {
+            "width": 960,
+            "height": 544,
+            "encoding": "bgr8"
+          }
+        },
+        "/camera0/segmentation/people_mask": {
+          "frames": 252,
+          "fps": 12.6,
+          "unique_stamps": 252,
+          "header_age_samples": 252,
+          "header_age_median_ms": 255.3,
+          "header_age_p95_ms": 348.1,
+          "image": {
+            "width": 960,
+            "height": 544,
+            "encoding": "mono8"
+          }
+        },
+        "/camera0/unet/colored_segmentation_mask": {
+          "frames": 218,
+          "fps": 10.9,
+          "unique_stamps": 218,
+          "header_age_samples": 218,
+          "header_age_median_ms": 298.8,
+          "header_age_p95_ms": 488.3,
+          "image": {
+            "width": 960,
+            "height": 544,
+            "encoding": "rgb8"
+          }
+        },
+        "/nvblox_node/dynamic_color_frame_overlay": {
+          "frames": 271,
+          "fps": 13.55,
+          "unique_stamps": 271,
+          "header_age_samples": 271,
+          "header_age_median_ms": 343.8,
+          "header_age_p95_ms": 445.5,
+          "image": {
+            "width": 424,
+            "height": 240,
+            "encoding": "rgba8"
+          }
+        },
+        "/nvblox_node/dynamic_depth_frame_overlay": {
+          "frames": 273,
+          "fps": 13.65,
+          "unique_stamps": 273,
+          "header_age_samples": 273,
+          "header_age_median_ms": 338.9,
+          "header_age_p95_ms": 448.7,
+          "image": {
+            "width": 424,
+            "height": 240,
+            "encoding": "rgba8"
+          }
+        }
+      }
+    },
+    "baseline_final": {
+      "time": "2026-10-14T14:01:10.470287+09:00",
+      "duration_seconds": 20.0,
+      "qos": "best_effort",
+      "note": "Observer subscriptions can add ROS serialization work; header age includes all upstream processing, not stage-only latency.",
+      "topics": {
+        "/camera0/camera/color/image_raw": {
+          "frames": 599,
+          "fps": 29.95,
+          "unique_stamps": 599,
+          "header_age_samples": 599,
+          "header_age_median_ms": 33.5,
+          "header_age_p95_ms": 36.2,
+          "image": {
+            "width": 424,
+            "height": 240,
+            "encoding": "rgb8"
+          }
+        },
+        "/camera0/camera/depth/image_rect_raw": {
+          "frames": 600,
+          "fps": 30.0,
+          "unique_stamps": 600,
+          "header_age_samples": 600,
+          "header_age_median_ms": 8.7,
+          "header_age_p95_ms": 11.6,
+          "image": {
+            "width": 424,
+            "height": 240,
+            "encoding": "16UC1"
+          }
+        },
+        "/camera0/unet/colored_segmentation_mask": {
+          "frames": 235,
+          "fps": 11.75,
+          "unique_stamps": 235,
+          "header_age_samples": 235,
+          "header_age_median_ms": 866.4,
+          "header_age_p95_ms": 984.4,
+          "image": {
+            "width": 960,
+            "height": 544,
+            "encoding": "rgb8"
+          }
+        },
+        "/nvblox_node/dynamic_color_frame_overlay": {
+          "frames": 231,
+          "fps": 11.55,
+          "unique_stamps": 231,
+          "header_age_samples": 231,
+          "header_age_median_ms": 916.2,
+          "header_age_p95_ms": 1047.3,
+          "image": {
+            "width": 960,
+            "height": 544,
+            "encoding": "rgba8"
+          }
+        },
+        "/nvblox_node/dynamic_depth_frame_overlay": {
+          "frames": 267,
+          "fps": 13.35,
+          "unique_stamps": 267,
+          "header_age_samples": 267,
+          "header_age_median_ms": 880.0,
+          "header_age_p95_ms": 985.6,
+          "image": {
+            "width": 424,
+            "height": 240,
+            "encoding": "rgba8"
+          }
+        }
+      }
+    },
+    "optimized_final": {
+      "time": "2026-10-14T14:14:08.381196+09:00",
+      "duration_seconds": 20.0,
+      "qos": "best_effort",
+      "note": "Observer subscriptions can add ROS serialization work; header age includes all upstream processing, not stage-only latency.",
+      "topics": {
+        "/camera0/camera/color/image_raw": {
+          "frames": 598,
+          "fps": 29.9,
+          "unique_stamps": 598,
+          "header_age_samples": 598,
+          "header_age_median_ms": 33.3,
+          "header_age_p95_ms": 34.0,
+          "image": {
+            "width": 424,
+            "height": 240,
+            "encoding": "rgb8"
+          }
+        },
+        "/camera0/camera/depth/image_rect_raw": {
+          "frames": 599,
+          "fps": 29.95,
+          "unique_stamps": 599,
+          "header_age_samples": 599,
+          "header_age_median_ms": 8.7,
+          "header_age_p95_ms": 9.3,
+          "image": {
+            "width": 424,
+            "height": 240,
+            "encoding": "16UC1"
+          }
+        },
+        "/camera0/unet/colored_segmentation_mask": {
+          "frames": 198,
+          "fps": 9.9,
+          "unique_stamps": 198,
+          "header_age_samples": 198,
+          "header_age_median_ms": 305.4,
+          "header_age_p95_ms": 465.9,
+          "image": {
+            "width": 960,
+            "height": 544,
+            "encoding": "rgb8"
+          }
+        },
+        "/nvblox_node/dynamic_color_frame_overlay": {
+          "frames": 278,
+          "fps": 13.9,
+          "unique_stamps": 278,
+          "header_age_samples": 278,
+          "header_age_median_ms": 353.7,
+          "header_age_p95_ms": 451.2,
+          "image": {
+            "width": 424,
+            "height": 240,
+            "encoding": "rgba8"
+          }
+        },
+        "/nvblox_node/dynamic_depth_frame_overlay": {
+          "frames": 281,
+          "fps": 14.05,
+          "unique_stamps": 281,
+          "header_age_samples": 281,
+          "header_age_median_ms": 344.0,
+          "header_age_p95_ms": 439.7,
+          "image": {
+            "width": 424,
+            "height": 240,
+            "encoding": "rgba8"
+          }
+        }
+      }
+    }
+  },
+  "rejected_engine_comparisons": {
+    "fp16": {
+      "input": [
+        1,
+        3,
+        544,
+        960
+      ],
+      "output": [
+        1,
+        544,
+        960,
+        1
+      ],
+      "samples": [
+        {
+          "frame": 0,
+          "pixel_agreement": 0.00026041666666666666,
+          "original_person_pixels": 136,
+          "person_iou": 0.00026041666666666666,
+          "candidate_person_pixels": 522240
+        },
+        {
+          "frame": 1,
+          "pixel_agreement": 0.08688534007352941,
+          "original_person_pixels": 45375,
+          "person_iou": 0.08688534007352941,
+          "candidate_person_pixels": 522240
+        },
+        {
+          "frame": 2,
+          "pixel_agreement": 0.19358723958333332,
+          "original_person_pixels": 101099,
+          "person_iou": 0.19358723958333332,
+          "candidate_person_pixels": 522240
+        },
+        {
+          "frame": 3,
+          "pixel_agreement": 0.2082165287990196,
+          "original_person_pixels": 108739,
+          "person_iou": 0.2082165287990196,
+          "candidate_person_pixels": 522240
+        },
+        {
+          "frame": 4,
+          "pixel_agreement": 0.2306008731617647,
+          "original_person_pixels": 120429,
+          "person_iou": 0.2306008731617647,
+          "candidate_person_pixels": 522240
+        },
+        {
+          "frame": 5,
+          "pixel_agreement": 0.23439223345588237,
+          "original_person_pixels": 122409,
+          "person_iou": 0.23439223345588237,
+          "candidate_person_pixels": 522240
+        },
+        {
+          "frame": 6,
+          "pixel_agreement": 0.22976983762254902,
+          "original_person_pixels": 119995,
+          "person_iou": 0.22976983762254902,
+          "candidate_person_pixels": 522240
+        },
+        {
+          "frame": 7,
+          "pixel_agreement": 0.22362898284313726,
+          "original_person_pixels": 116788,
+          "person_iou": 0.22362898284313726,
+          "candidate_person_pixels": 522240
+        }
+      ]
+    },
+    "bf16_candidate": {
+      "input": [
+        1,
+        3,
+        544,
+        960
+      ],
+      "output": [
+        1,
+        544,
+        960,
+        1
+      ],
+      "samples": [
+        {
+          "frame": 0,
+          "pixel_agreement": 1.0,
+          "original_person_pixels": 136,
+          "person_iou": 1.0,
+          "candidate_person_pixels": 136
+        },
+        {
+          "frame": 1,
+          "pixel_agreement": 0.9999655330882353,
+          "original_person_pixels": 45375,
+          "person_iou": 0.9996034630890225,
+          "candidate_person_pixels": 45393
+        },
+        {
+          "frame": 2,
+          "pixel_agreement": 0.9999731924019608,
+          "original_person_pixels": 101099,
+          "person_iou": 0.9998615300924781,
+          "candidate_person_pixels": 101097
+        },
+        {
+          "frame": 3,
+          "pixel_agreement": 0.9999425551470589,
+          "original_person_pixels": 108739,
+          "person_iou": 0.9997241759757275,
+          "candidate_person_pixels": 108761
+        },
+        {
+          "frame": 4,
+          "pixel_agreement": 0.9999885110294118,
+          "original_person_pixels": 120429,
+          "person_iou": 0.9999501793543244,
+          "candidate_person_pixels": 120429
+        },
+        {
+          "frame": 5,
+          "pixel_agreement": 0.9999731924019608,
+          "original_person_pixels": 122409,
+          "person_iou": 0.9998856367988106,
+          "candidate_person_pixels": 122411
+        },
+        {
+          "frame": 6,
+          "pixel_agreement": 0.9999770220588236,
+          "original_person_pixels": 119995,
+          "person_iou": 0.9999,
+          "candidate_person_pixels": 119993
+        },
+        {
+          "frame": 7,
+          "pixel_agreement": 0.9999770220588236,
+          "original_person_pixels": 116788,
+          "person_iou": 0.999897257635042,
+          "candidate_person_pixels": 116794
+        }
+      ]
+    },
+    "int8": {
+      "input": [
+        1,
+        3,
+        544,
+        960
+      ],
+      "output": [
+        1,
+        544,
+        960,
+        1
+      ],
+      "samples": [
+        {
+          "frame": 0,
+          "pixel_agreement": 0.9997395833333333,
+          "original_person_pixels": 136,
+          "person_iou": 0.0,
+          "candidate_person_pixels": 0
+        },
+        {
+          "frame": 1,
+          "pixel_agreement": 0.9726371017156863,
+          "original_person_pixels": 45375,
+          "person_iou": 0.6857130289434328,
+          "candidate_person_pixels": 31271
+        },
+        {
+          "frame": 2,
+          "pixel_agreement": 0.980242800245098,
+          "original_person_pixels": 101099,
+          "person_iou": 0.898737904096414,
+          "candidate_person_pixels": 92371
+        },
+        {
+          "frame": 3,
+          "pixel_agreement": 0.9819201899509804,
+          "original_person_pixels": 108739,
+          "person_iou": 0.9147094955918486,
+          "candidate_person_pixels": 103227
+        },
+        {
+          "frame": 4,
+          "pixel_agreement": 0.9933612898284314,
+          "original_person_pixels": 120429,
+          "person_iou": 0.9713530262342491,
+          "candidate_person_pixels": 118154
+        },
+        {
+          "frame": 5,
+          "pixel_agreement": 0.9898016237745098,
+          "original_person_pixels": 122409,
+          "person_iou": 0.9566071093947319,
+          "candidate_person_pixels": 117743
+        },
+        {
+          "frame": 6,
+          "pixel_agreement": 0.9903569240196078,
+          "original_person_pixels": 119995,
+          "person_iou": 0.9580794459427963,
+          "candidate_person_pixels": 115233
+        },
+        {
+          "frame": 7,
+          "pixel_agreement": 0.9773246017156862,
+          "original_person_pixels": 116788,
+          "person_iou": 0.898927135699837,
+          "candidate_person_pixels": 105696
+        }
+      ]
+    }
+  }
+}

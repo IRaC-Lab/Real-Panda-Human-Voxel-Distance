@@ -68,20 +68,29 @@ without this the RealSense fails to open with a libusb/permission error:
 
 ```bash
 sudo mkdir -p /etc/apt/keyrings
-curl -sSf https://librealsense.realsenseai.com/Debian/librealsense.pgp \
-  | sudo tee /etc/apt/keyrings/librealsenseai.gpg > /dev/null
+curl -sSf https://librealsense.realsenseai.com/Debian/librealsenseai.asc \
+  | gpg --dearmor | sudo tee /etc/apt/keyrings/librealsenseai.gpg > /dev/null
 echo "deb [signed-by=/etc/apt/keyrings/librealsenseai.gpg] https://librealsense.realsenseai.com/Debian/apt-repo jammy main" \
   | sudo tee /etc/apt/sources.list.d/librealsense.list
 sudo apt update
 sudo apt install librealsense2-udev-rules librealsense2-utils
 ```
 
+The native Isaac ROS tensor preprocessing also needs a compatible CV-CUDA
+runtime. Match its version to the installed Isaac ROS release using
+[isaac_ros_common's Dockerfile.base](https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_common/blob/release-3.2/docker/Dockerfile.base),
+and choose the package for your CUDA version and CPU architecture. The
+recorded Isaac ROS 3.2.10 setup used CV-CUDA v0.5.0-beta; v0.18.0 caused an
+ABI symbol error. Installing the latest CV-CUDA release indiscriminately
+is not sufficient. See [installation notes](docs/INSTALLATION_NOTES.md).
+
 ### 3. libfranka 0.9.2
 
 ```bash
 sudo apt remove ros-humble-libfranka   # wrong version for Panda, if present
 sudo apt install ros-humble-ros2-controllers ros-humble-joint-trajectory-controller
-sudo apt install build-essential cmake git libpoco-dev libeigen3-dev
+sudo apt install build-essential cmake git libpoco-dev libeigen3-dev \
+  libgflags-dev libgoogle-glog-dev libgtest-dev libbenchmark-dev
 
 git clone --recursive https://github.com/frankarobotics/libfranka.git ~/libfranka
 cd ~/libfranka
@@ -112,22 +121,31 @@ with `source_real_ws` to switch that one terminal onto this workspace.
 cd "$HOME/panda_real_ws"
 vcs import src < isaac_ros_nvblox.repos
 git -C src/isaac_ros_nvblox submodule update --init --recursive
-git -C src/isaac_ros_nvblox apply patches/nvblox_skip_empty_deletion.patch
-git -C src/isaac_ros_nvblox apply patches/realsense_camera_topic_namespace.patch
-git -C src/isaac_ros_nvblox apply patches/vanilla_segmentation_preprocessing.patch
+git -C src/isaac_ros_nvblox apply "$PWD/patches/nvblox_skip_empty_deletion.patch"
+git -C src/isaac_ros_nvblox apply "$PWD/patches/realsense_camera_topic_namespace.patch"
+git -C src/isaac_ros_nvblox apply "$PWD/patches/vanilla_segmentation_preprocessing.patch"
+git -C src/isaac_ros_nvblox apply "$PWD/patches/nvblox_runtime_sync_timestamps.patch"
 vcs import src < franka_arm_ros2.repos
+git -C src/franka_arm_ros2 apply "$PWD/patches/franka_runtime_recovery.patch"
 
-# nvblox_examples' realsense_splitter ships COLCON_IGNORE'd upstream; the
-# real-camera depth pipeline needs it.
+# Keep the optional splitter package available; this people pipeline reads
+# depth directly and does not depend on splitter metadata.
 rm -f src/isaac_ros_nvblox/nvblox_examples/realsense_splitter/COLCON_IGNORE
 
-rosdep install --from-paths src --ignore-src -y
+rosdep install --from-paths src --ignore-src -y \
+  --skip-keys "isaac_ros_test isaac_ros_test_cmake ament_python"
 
 colcon build --symlink-install \
   --packages-up-to panda_pick_place panda_real_bringup realsense_splitter \
   --cmake-args -DFranka_DIR="$HOME/libfranka/build" -DBUILD_TESTING=OFF
 source install/setup.bash
 ```
+
+The dependency patches include the color/mask synchronization, overlay
+capture timestamps, Franka broadcaster rate limit, and recovery diagnostics.
+Apply them to the pinned source revisions on a fresh checkout. On an
+existing patched workspace, use `git apply --reverse --check <patch>` to
+check whether a patch is already applied before applying it again.
 
 On a memory-constrained board (e.g. Jetson), add `--parallel-workers 1` to
 `colcon build` if it gets OOM-killed compiling nvblox_ros's CUDA code.
@@ -143,11 +161,22 @@ cd "$HOME/panda_real_ws/models/peoplesemsegnet/vanilla"
 mkdir -p 1
 /usr/src/tensorrt/bin/trtexec \
   --onnx=peoplesemsegnet_vanilla_unet_dynamic_etlt_fp32.onnx \
-  --saveEngine=1/model_vanilla_v2_0_2.plan \
-  --fp16
+  --saveEngine=1/model_vanilla_v2_0_2.plan
 ```
 
-Drop `--fp16` for an FP32 engine.
+Keep the validated original engine when optimizing transport and mapping.
+Do not overwrite it with an unvalidated precision change: a direct FP16
+rebuild produced invalid masks in the local comparison, and the supplied
+INT8 calibration reduced person coverage in some frames. Validate reduced
+precision against the original masks before deployment.
+
+The separate 424x240 engine can be regenerated with:
+
+```bash
+python3 "$HOME/panda_real_ws/src/panda_pick_place/panda_pick_place/scripts/build_native_segmentation_engine.py" \
+  --onnx "$HOME/panda_real_ws/models/peoplesemsegnet/vanilla/peoplesemsegnet_vanilla_unet_dynamic_etlt_fp32.onnx" \
+  --output "$HOME/panda_real_ws/models/peoplesemsegnet/vanilla/1/model_vanilla_v2_0_2_424x240.plan"
+```
 
 ## Run
 
@@ -239,8 +268,8 @@ its own, without the arm or an FCI connection. `run_panda:=False` switches
 ```bash
 ros2 launch nvblox_examples_bringup realsense.launch.py \
   run_standalone:=True \
-  color_profile:=848x480x30 \
-  depth_profile:=848x480x30
+  color_profile:=424x240x30 \
+  depth_profile:=424x240x30
 ```
 
 #### Terminal 2 — People segmentation + nvblox
@@ -260,8 +289,100 @@ ros2 run rqt_image_view rqt_image_view /nvblox_node/dynamic_color_frame_overlay 
 ros2 run rqt_image_view rqt_image_view /nvblox_node/dynamic_depth_frame_overlay
 ```
 
+### Avoid starting the same camera twice
+
+The camera launch now reserves the detected D435i USB serial with a local
+process lock and checks existing video handles before loading the driver.
+A second launch, including one in another ROS domain, exits with an
+`already reserved` or `already open by PID` message. Stop the previous camera
+launch before retrying. ROS domains do not provide separate access to the
+physical USB device. Default-domain operation uses `unset ROS_DOMAIN_ID` in
+all terminals. A separate ROS domain does not create a separate camera device.
+
+### Perception performance
+
+`panda_realsense_people.launch.py` enables `optimize_perception:=True` by
+default. The camera still publishes its configured raw RGB/depth rate. A
+paired RGB/CameraInfo input node keeps at most three segmentation frames
+outstanding and forwards the latest available frame when a result arrives,
+avoiding a backlog of stale model inputs. Its internal input and result
+feedback use reliable QoS; camera acquisition retains sensor-data QoS.
+
+The validated original profile uses 960x544. A separate measured 424x240
+profile is available with `segmentation_resolution:=424x240` when the raw
+camera is 424x240 (or smaller). It selects
+`model_vanilla_v2_0_2_424x240.plan`, whose external input/output are 424x240.
+The U-Net internally pads to 448x256 for its stride-32 feature maps and crops
+the mask back to 424x240; the camera image is not enlarged. The default
+resolution remains 960x544 so existing larger-camera and robot launches keep
+their profile. The low-resolution profile changes mask predictions and needs
+accuracy evaluation for its intended scene.
+Nvblox maps RGB at the native camera resolution. `native_mask_node` now applies
+a four-connected component filter at full model resolution by default
+(`mask_component_subsampling:=1`), preserving thin attached regions and gaps.
+Use `mask_component_subsampling:=2` to compare the previous subsampled filter.
+The area threshold is 2000 pixels at 960x544 and 390 at 424x240.
+It conservatively reduces the cleaned
+mask to camera resolution, and pairs it with that capture's original
+CameraInfo. A foreground-covered target pixel remains foreground. Nvblox's
+duplicate component filtering is disabled in this mode. The color overlay
+now has the raw RGB dimensions (424x240 in the measured setup).
+
+Native mapping requires camera dimensions no larger than the selected model
+mask. The original configuration is available with
+`segmentation_resolution:=960x544 optimize_perception:=False`.
+`max_segmentation_in_flight:=3` is the measured default; two reduces the amount
+of outstanding work further, with a potential throughput tradeoff.
+
+To profile the raw images, intermediate images/mask, and final overlays:
+
+```bash
+source_real_ws
+ros2 run panda_pick_place perception_profile --duration 20 --output /tmp/perception_rates.json
+```
+
+The profiler reports observed receive FPS and median/p95 age of the source
+header stamp. Header age includes all upstream work and driver timing; it is
+not the compute time of that stage. Diagnostic subscribers also add data
+conversion work, so compare with the same subscriber set.
+
+The 2026-10-14 comparison used 424x240x30 RGB/depth, an AGX Orin in 50W mode,
+and a separate temporary `ROS_DOMAIN_ID=83` to exclude serialization warnings
+also seen in the original configuration on domain 0. For isolated camera-only
+measurements, set `export ROS_DOMAIN_ID=83` after `source_real_ws` in **every**
+camera, perception, and viewer terminal. Robot ROS nodes must use the same
+chosen domain when running the full robot setup.
+
+Detailed measurements and validation are in
+[src/panda_pick_place/panda_pick_place/PERCEPTION_PERFORMANCE.md](src/panda_pick_place/panda_pick_place/PERCEPTION_PERFORMANCE.md).
+
+The 424x240 experiment reached approximately 30 FPS through mask and both
+overlays; source-header median overlay age was about 110 ms in the stage
+measurement. Commands, exact rates, engine padding, and same-frame mask
+comparison limits are recorded in
+[src/panda_pick_place/panda_pick_place/NATIVE_SEGMENTATION_424x240.md](src/panda_pick_place/panda_pick_place/NATIVE_SEGMENTATION_424x240.md).
+
+The follow-up full-resolution component filter retained approximately 30 FPS
+at 424x240. Detailed rates and commands:
+[src/panda_pick_place/panda_pick_place/MASK_BOUNDARY_EXPERIMENT_2026-10-14.md](src/panda_pick_place/panda_pick_place/MASK_BOUNDARY_EXPERIMENT_2026-10-14.md).
+
 ### Known gaps
 
 - `/closest_panda_human/distance` is computed but not read by
   `pick_place_node` — the arm doesn't slow down or stop when a person gets
   close yet.
+
+## Changes and validation
+
+See [CHANGELOG.md](CHANGELOG.md) for the added model profile, perception
+pipeline, dependency patches, and robot recovery changes. The
+[installation notes](docs/INSTALLATION_NOTES.md) collect cross-platform
+setup problems and fixes. The historical
+[workspace comparison](src/panda_pick_place/panda_pick_place/WORKSPACE_DIFF_FROM_GITHUB_2026-10-21.md)
+records source evidence, tradeoffs, and the limits of past measurements.
+
+The low-resolution profile changes mask predictions. Automatic recovery
+allows operation to resume after a latched error; it does not remove the
+cause of reflexes. A prior full-system observation recorded four
+warning/recovery intervals in ten minutes. These changes do not establish
+collision-avoidance accuracy or error-free operation.

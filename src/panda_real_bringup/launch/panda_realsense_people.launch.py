@@ -13,6 +13,12 @@ def generate_launch_description() -> LaunchDescription:
     args.add_arg('run_rviz', True, cli=True)
     # Set False when no Panda is connected (desktop + camera only).
     args.add_arg('run_panda', True, cli=True)
+    args.add_arg('optimize_perception', True, cli=True)
+    args.add_arg('max_segmentation_in_flight', 3, cli=True)
+    args.add_arg('limit_segmentation_input', True, cli=True)
+    args.add_arg('mask_component_subsampling', 1, cli=True)
+    args.add_arg('segmentation_resolution', '960x544',
+                 choices=['424x240', '960x544'], cli=True)
     # Empty means "pick automatically from run_panda" (see _launch_setup): panda_link0
     # only exists once the franka driver is up, so a Panda-less run needs a frame the
     # camera publishes on its own instead -- camera0_link (see the realsense_splitter
@@ -24,8 +30,7 @@ def generate_launch_description() -> LaunchDescription:
     # ShuffleSeg is Isaac-Sim-only (see the main README's Isaac Sim section).
     args.add_arg(
         'vanilla_engine_file_path',
-        os.path.join(os.path.expanduser('~'), 'panda_real_ws', 'models',
-                     'peoplesemsegnet', 'vanilla', '1', 'model_vanilla_v2_0_2.plan'),
+        '',
         cli=True)
     args.add_arg(
         'segmentation_output_binding_names', '["argmax_1"]', cli=True)
@@ -40,7 +45,36 @@ def _launch_setup(context, args: lu.ArgumentContainer) -> list:
     if not global_frame:
         global_frame = 'panda_link0' if run_panda else 'camera0_link'
 
+    width, height = map(int, args.segmentation_resolution.perform(context).split('x'))
+    engine_path = args.vanilla_engine_file_path.perform(context)
+    if not engine_path:
+        engine_name = ('model_vanilla_v2_0_2_424x240.plan' if (width, height) == (424, 240)
+                       else 'model_vanilla_v2_0_2.plan')
+        engine_path = os.path.join(os.path.expanduser('~'), 'panda_real_ws', 'models',
+                                   'peoplesemsegnet', 'vanilla', '1', engine_name)
+    # Keep the minimum component area proportional to model image area.
+    component_threshold = round(2000 * width * height / (960 * 544))
+    mask_subsampling = int(args.mask_component_subsampling.perform(context))
+    if mask_subsampling not in (1, 2):
+        raise ValueError('mask_component_subsampling must be 1 or 2')
+    optimized = args.optimize_perception.perform(context).lower() in ('true', '1')
+    bounded_input = optimized and args.limit_segmentation_input.perform(context).lower() in ('true', '1')
+    segmentation_image = ('/camera0/segmentation/input/image' if bounded_input
+                          else '/camera0/camera/color/image_raw')
+    segmentation_info = ('/camera0/segmentation/input/camera_info' if bounded_input
+                         else '/camera0/camera/color/camera_info')
+
     actions = []
+    if bounded_input:
+        actions.append(
+            Node(package='panda_pick_place', executable='segmentation_input_node',
+                 parameters=[{'max_in_flight': int(args.max_segmentation_in_flight.perform(context))}],
+                 output='screen'))
+    if optimized:
+        actions.append(
+            Node(package='panda_pick_place', executable='native_mask_node',
+                 parameters=[{'component_threshold': component_threshold,
+                              'component_subsampling': mask_subsampling}], output='screen'))
     actions.append(lu.component_container(
         NVBLOX_CONTAINER_NAME, condition=IfCondition(args.run_realsense)))
 
@@ -71,16 +105,19 @@ def _launch_setup(context, args: lu.ArgumentContainer) -> list:
             'launch/perception/segmentation.launch.py',
             launch_arguments={
                 'people_segmentation': 'peoplesemsegnet_vanilla',
+                'input_qos': 'DEFAULT' if bounded_input else 'SENSOR_DATA',
                 'num_cameras': '1',
                 'namespace_list': '["camera0"]',
-                'input_topic_list': '["/camera0/camera/color/image_raw"]',
+                'input_topic_list': f'["{segmentation_image}"]',
                 'input_camera_info_topic_list':
-                    '["/camera0/camera/color/camera_info"]',
+                    f'["{segmentation_info}"]',
                 'output_resized_image_topic_list':
                     '["/camera0/segmentation/image_resized"]',
                 'output_resized_camera_info_topic_list':
                     '["/camera0/segmentation/camera_info_resized"]',
-                'vanilla_engine_file_path': args.vanilla_engine_file_path,
+                'vanilla_engine_file_path': engine_path,
+                'network_image_width': str(width),
+                'network_image_height': str(height),
                 'output_binding_names':
                     args.segmentation_output_binding_names,
                 'one_container_per_camera': 'True',
@@ -95,6 +132,17 @@ def _launch_setup(context, args: lu.ArgumentContainer) -> list:
         'my_people_nvblox_bringup',
         'config/nvblox/specializations/nvblox_realsense.yaml')
 
+    nvblox_overrides = {
+        'global_frame': global_frame,
+        'num_cameras': 1,
+        'use_lidar': False,
+        'multi_mapper.connected_mask_component_size_threshold': component_threshold,
+        'workspace_height_bounds_visualization_attachment_frame_id': global_frame,
+    }
+    if optimized:
+        # native_mask_node applies the same component filter once before resizing.
+        nvblox_overrides['multi_mapper.remove_small_connected_components'] = False
+
     nvblox_node = ComposableNode(
         name='nvblox_node',
         package='nvblox_ros',
@@ -103,26 +151,32 @@ def _launch_setup(context, args: lu.ArgumentContainer) -> list:
             base_config,
             segmentation_config,
             realsense_config,
-            {
-                'global_frame': global_frame,
-                'num_cameras': 1,
-                'use_lidar': False,
-                'workspace_height_bounds_visualization_attachment_frame_id':
-                    global_frame,
-            },
+            nvblox_overrides,
         ],
         remappings=[
+            # realsense_splitter_node only republishes a frame once it reads a
+            # matching "frame_emitter_mode" in that frame's metadata - a field this
+            # camera unit never populates (verified live, independent of kernel V4L2
+            # vs userspace RSUSB backend), so nvblox never got any depth through it.
+            # Nothing here consumes the splitter's infra1/infra2 outputs either (no
+            # cuVSLAM in this pipeline), so there's nothing left to split: take depth
+            # straight from the camera instead.
             ('camera_0/depth/image',
-             '/camera0/realsense_splitter_node/output/depth'),
+             '/camera0/camera/depth/image_rect_raw'),
             ('camera_0/depth/camera_info',
              '/camera0/camera/depth/camera_info'),
             ('camera_0/color/image',
-             '/camera0/segmentation/image_resized'),
+             ('/camera0/camera/color/image_raw' if optimized
+              else '/camera0/segmentation/image_resized')),
             ('camera_0/color/camera_info',
-             '/camera0/segmentation/camera_info_resized'),
-            ('camera_0/mask/image', '/camera0/segmentation/people_mask'),
+             ('/camera0/camera/color/camera_info' if optimized
+              else '/camera0/segmentation/camera_info_resized')),
+            ('camera_0/mask/image',
+             ('/camera0/segmentation/people_mask_native' if optimized
+              else '/camera0/segmentation/people_mask')),
             ('camera_0/mask/camera_info',
-             '/camera0/segmentation/camera_info_resized'),
+             ('/camera0/segmentation/camera_info_native' if optimized
+              else '/camera0/segmentation/camera_info_resized')),
         ])
     actions.append(lu.load_composable_nodes(NVBLOX_CONTAINER_NAME, [nvblox_node]))
 
