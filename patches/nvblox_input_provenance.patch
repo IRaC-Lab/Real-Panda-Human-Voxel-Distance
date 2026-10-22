@@ -1,0 +1,78 @@
+--- a/nvblox_ros/include/nvblox_ros/nvblox_node.hpp
++++ b/nvblox_ros/include/nvblox_ros/nvblox_node.hpp
+@@ -44,6 +44,7 @@
+ #include <nav_msgs/msg/occupancy_grid.hpp>
+ #include <sensor_msgs/msg/camera_info.hpp>
+ #include <sensor_msgs/msg/image.hpp>
++#include <sensor_msgs/msg/time_reference.hpp>
+ #include <sensor_msgs/msg/point_cloud2.hpp>
+ #include <std_msgs/msg/string.hpp>
+ #include <visualization_msgs/msg/marker.hpp>
+@@ -379,6 +380,8 @@
+ 
+   // Publishers
+   std::unique_ptr<LayerPublisher> layer_publisher_;
++  rclcpp::Publisher<sensor_msgs::msg::TimeReference>::SharedPtr layer_depth_reference_publisher_;
++  rclcpp::Publisher<sensor_msgs::msg::TimeReference>::SharedPtr layer_mask_reference_publisher_;
+   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr
+     static_esdf_pointcloud_publisher_;
+   rclcpp::Publisher<nvblox_msgs::msg::DistanceMapSlice>::SharedPtr
+@@ -453,6 +456,10 @@
+   /// The time stamp of the last frame contributing to the reconstruction.
+   rclcpp::Time newest_integrated_depth_time_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
+ 
++  // Original paired RGB-D capture times for map-snapshot provenance.
++  rclcpp::Time layer_depth_input_time_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
++  rclcpp::Time layer_mask_input_time_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
++
+   /// The time stamp when we last cleared shapes in the reconstruction.
+   rclcpp::Time shape_clearing_last_time_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
+ 
+--- a/nvblox_ros/src/lib/nvblox_node.cpp
++++ b/nvblox_ros/src/lib/nvblox_node.cpp
+@@ -359,6 +359,10 @@
+ void NvbloxNode::advertiseTopics()
+ {
+   RCLCPP_INFO_STREAM(get_logger(), "NvbloxNode::advertiseTopics()");
++  layer_depth_reference_publisher_ =
++    create_publisher<sensor_msgs::msg::TimeReference>("~/layer_depth_reference", 10);
++  layer_mask_reference_publisher_ =
++    create_publisher<sensor_msgs::msg::TimeReference>("~/layer_mask_reference", 10);
+   // Static esdf
+   static_esdf_pointcloud_publisher_ =
+     create_publisher<sensor_msgs::msg::PointCloud2>("~/static_esdf_pointcloud", 1);
+@@ -1059,6 +1063,11 @@
+     nvblox::Time(depth_image_timestamp.nanoseconds()),
+     nvblox::Time(now().nanoseconds()));
+   integrate_depth_last_times_[depth_frame] = depth_image_timestamp;
++  if (depth_image_timestamp >= layer_depth_input_time_) {
++    layer_depth_input_time_ = depth_image_timestamp;
++    layer_mask_input_time_ = mask_img_opt ? mask_image_timestamp :
++      rclcpp::Time(0, 0, RCL_ROS_TIME);
++  }
+   // Update the most recent depth time
+   newest_integrated_depth_time_ = std::max(depth_image_timestamp, newest_integrated_depth_time_);
+   integration_timer.Stop();
+@@ -1380,6 +1389,22 @@
+ 
+   const std::string frame_id = params_.global_frame.get();
+   const rclcpp::Time timestamp = get_clock()->now();
++  if (layer_depth_reference_publisher_->get_subscription_count() > 0) {
++    sensor_msgs::msg::TimeReference reference;
++    reference.header.stamp = timestamp;
++    reference.header.frame_id = frame_id;
++    reference.time_ref = layer_depth_input_time_;
++    reference.source = "latest_integrated_depth";
++    layer_depth_reference_publisher_->publish(reference);
++  }
++  if (layer_mask_reference_publisher_->get_subscription_count() > 0) {
++    sensor_msgs::msg::TimeReference reference;
++    reference.header.stamp = timestamp;
++    reference.header.frame_id = frame_id;
++    reference.time_ref = layer_mask_input_time_;
++    reference.source = "latest_integrated_rgb_mask";
++    layer_mask_reference_publisher_->publish(reference);
++  }
+   layer_publisher_->serializeAndpublishSubscribedLayers(
+     T_L_C, frame_id, timestamp, params_.layer_streamer_bandwidth_limit_mbps, static_mapper_,
+     dynamic_mapper_,

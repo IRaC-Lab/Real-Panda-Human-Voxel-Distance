@@ -62,6 +62,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
+            'measure_processing_latency = my_people_nvblox_bringup.measure_processing_latency:main',
             'closest_panda_human_voxels = '
             'my_people_nvblox_bringup.closest_panda_human_voxels:main',
             'panda_voxel_classifier = '

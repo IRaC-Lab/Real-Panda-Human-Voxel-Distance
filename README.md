@@ -185,6 +185,7 @@ git -C src/isaac_ros_nvblox apply "$PWD/patches/nvblox_skip_empty_deletion.patch
 git -C src/isaac_ros_nvblox apply "$PWD/patches/realsense_camera_topic_namespace.patch"
 git -C src/isaac_ros_nvblox apply "$PWD/patches/vanilla_segmentation_preprocessing.patch"
 git -C src/isaac_ros_nvblox apply "$PWD/patches/nvblox_runtime_sync_timestamps.patch"
+git -C src/isaac_ros_nvblox apply "$PWD/patches/nvblox_input_provenance.patch"
 git -C src/franka_arm_ros2 apply "$PWD/patches/franka_runtime_recovery.patch"
 rm -f src/isaac_ros_nvblox/nvblox_examples/realsense_splitter/COLCON_IGNORE
 
@@ -322,3 +323,41 @@ ros2 run rqt_image_view rqt_image_view /nvblox_node/dynamic_depth_frame_overlay
 
 The distance output is informational; `pick_place_node` does not use it to
 slow down or stop the arm.
+
+
+## Distance calculation timing
+
+Geometry and temporal filtering run on fresh voxel inputs; `update_rate_hz`
+limits publication only (5 Hz by default). `input_timeout_s` defaults to 0.5 s.
+Missing or expired RGB-D/Panda inputs produce NaN distances and clear distance
+markers. The two `nvblox_node/layer_*_reference` topics require the provenance
+patch in step 5; an unpatched nvblox does not provide valid timing/freshness data.
+
+With the system running and a person visible, measure for three minutes:
+
+```bash
+source_real_ws
+ros2 run my_people_nvblox_bringup measure_processing_latency --duration 180
+```
+
+The report separates calculation rate, valid frame-pair rate, 5 Hz output rate,
+and mean/p95/maximum latency. Camera-timestamp ages describe the latest RGB-D
+pair integrated into each map snapshot; cached voxels can be older. Matched ROS
+image-receipt timings use the host monotonic clock. GUI rendering and output
+throttling are excluded. Raw timing samples are available on
+`/closest_panda_human/processing_timing` while a subscriber is attached.
+
+
+For a stage breakdown without changing the processing algorithm:
+
+```bash
+ros2 run my_people_nvblox_bringup measure_processing_latency --duration 180 --detailed
+```
+
+Restart the perception launch after updating the distance node to expose the
+internal component/exclusion/nearest-pair/filter timings. Detailed mode observes
+matching tensor and mask messages. Its TensorRT/decoder/nvblox intervals include
+ROS transport, scheduling, and observer overhead; they are not CUDA kernel-only
+times. Standard tensor subscriptions can add GPU-to-CPU serialization work.
+Preprocessing and native-mask postprocessing remain enabled, even when omitted
+as separate rows in a report. Distance substeps use in-node monotonic clocks.

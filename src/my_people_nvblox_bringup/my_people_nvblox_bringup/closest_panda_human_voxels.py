@@ -3,12 +3,17 @@
 """Find and visualize the closest observed Panda/human voxel pair."""
 
 import copy
-from collections import deque
+from collections import OrderedDict
+import json
+import time
 import math
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import rclpy
+from scipy.spatial import cKDTree
+from scipy.sparse import coo_matrix
+from scipy.sparse.csgraph import connected_components
 from geometry_msgs.msg import Point
 from nvblox_msgs.msg import VoxelBlockLayer
 from rclpy.duration import Duration
@@ -16,8 +21,8 @@ from rclpy.node import Node
 from rclpy.qos import (
     DurabilityPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data)
 from rclpy.time import Time
-from sensor_msgs.msg import CameraInfo
-from std_msgs.msg import Float32
+from sensor_msgs.msg import CameraInfo, TimeReference
+from std_msgs.msg import Float32, String
 from tf2_ros import Buffer, TransformException, TransformListener
 from visualization_msgs.msg import Marker, MarkerArray
 
@@ -27,65 +32,58 @@ SphereSpec = Tuple[str, np.ndarray, float]
 
 
 class DistanceFilter:
-    """Reject physically implausible jumps to a near-zero distance."""
+    """Reject implausible near-zero jumps using elapsed time, independent of rate."""
 
-    def __init__(
-        self, near_zero_threshold_m: float, max_drop_per_update_m: float,
-        max_rejected_updates: int,
-    ) -> None:
-        if (near_zero_threshold_m < 0.0 or max_drop_per_update_m < 0.0 or
-                max_rejected_updates <= 0):
-            raise ValueError(
-                'distance filter thresholds must be non-negative and '
-                'max_rejected_updates must be positive')
+    def __init__(self, near_zero_threshold_m: float, max_relative_speed_mps: float,
+                 distance_noise_margin_m: float, rejected_hold_timeout_s: float) -> None:
+        values = (near_zero_threshold_m, max_relative_speed_mps,
+                  distance_noise_margin_m, rejected_hold_timeout_s)
+        if (not all(math.isfinite(value) for value in values) or
+                min(values[:3]) < 0.0 or rejected_hold_timeout_s <= 0.0):
+            raise ValueError('filter limits must be finite and non-negative; timeout must be positive')
         self.near_zero_threshold_m = near_zero_threshold_m
-        self.max_drop_per_update_m = max_drop_per_update_m
-        self.max_rejected_updates = max_rejected_updates
-        self.filtered_distance: Optional[float] = None
-        self.rejected_updates = 0
+        self.max_relative_speed_mps = max_relative_speed_mps
+        self.distance_noise_margin_m = distance_noise_margin_m
+        self.rejected_hold_timeout_s = rejected_hold_timeout_s
+        self.reset()
+
+    def reset(self) -> None:
+        self.filtered_distance = None
+        self.last_update_time = None
+        self.last_valid_time = None
         self.last_valid_at_edge = False
 
-    def rejects_candidate(self, raw_distance: float) -> bool:
-        """Return whether a candidate cannot represent the tracked person."""
+    def rejects_candidate(self, raw_distance: float, now=None) -> bool:
         if not math.isfinite(raw_distance) or raw_distance < 0.0:
             return True
         if self.filtered_distance is None:
             return raw_distance <= self.near_zero_threshold_m
-        return (
-            raw_distance <= self.near_zero_threshold_m and
-            self.filtered_distance - raw_distance >
-            self.max_drop_per_update_m)
+        now = time.monotonic() if now is None else now
+        elapsed = max(0.0, now - self.last_update_time)
+        max_drop = self.max_relative_speed_mps * elapsed + self.distance_noise_margin_m
+        return (raw_distance <= self.near_zero_threshold_m and
+                self.filtered_distance - raw_distance > max_drop)
 
-    def update(
-        self, raw_distance: float, measurement_at_edge: bool = False,
-    ) -> Tuple[Optional[float], str]:
-        """Return the last accepted distance and its filter status."""
+    def update(self, raw_distance: float, measurement_at_edge: bool = False,
+               now=None) -> Tuple[Optional[float], str]:
+        now = time.monotonic() if now is None else now
+        rejected = self.rejects_candidate(raw_distance, now)
+        self.last_update_time = now
         if not math.isfinite(raw_distance) or raw_distance < 0.0:
-            return self.filtered_distance, 'INVALID'
-
-        if (self.filtered_distance is None and
-                raw_distance <= self.near_zero_threshold_m):
+            return None, 'INVALID'
+        if self.filtered_distance is None and raw_distance <= self.near_zero_threshold_m:
             return None, 'NO_DETECTION'
-
-        implausible_near_zero_jump = (
-            self.filtered_distance is not None and
-            self.rejects_candidate(raw_distance))
-        # ponytail: d-only heuristic; use tracked person IDs when identity
-        # switches or sudden camera entry must be distinguished reliably.
-        if implausible_near_zero_jump:
-            self.rejected_updates += 1
+        # ponytail: d-only heuristic; use tracked person IDs when identity switches matter.
+        if rejected:
             if self.last_valid_at_edge:
                 self.filtered_distance = None
-                self.rejected_updates = 0
                 return None, 'EXPIRED_AT_IMAGE_EDGE'
-            if self.rejected_updates >= self.max_rejected_updates:
+            if now - self.last_valid_time >= self.rejected_hold_timeout_s:
                 self.filtered_distance = None
-                self.rejected_updates = 0
                 return None, 'EXPIRED_TIMEOUT'
             return self.filtered_distance, 'REJECTED_NEAR_ZERO_JUMP'
-
         self.filtered_distance = raw_distance
-        self.rejected_updates = 0
+        self.last_valid_time = now
         self.last_valid_at_edge = measurement_at_edge
         return self.filtered_distance, 'VALID'
 
@@ -104,7 +102,9 @@ class ClosestPandaHumanVoxels(Node):
             'expanded_sphere_topic', '/panda/human_exclusion_spheres')
         self.declare_parameter(
             'camera_info_topic', '/front_stereo_camera/left/camera_info')
+        # Only publication is rate-limited; calculation/filtering follow voxel updates.
         self.declare_parameter('update_rate_hz', 5.0)
+        self.declare_parameter('input_timeout_s', 0.5)
         self.declare_parameter('comparison_chunk_size', 512)
         self.declare_parameter('use_spatial_human_filter', False)
         self.declare_parameter('robot_component_overlap_ratio', 0.3)
@@ -125,6 +125,7 @@ class ClosestPandaHumanVoxels(Node):
             self.get_parameter('expanded_sphere_topic').value)
         camera_info_topic = str(self.get_parameter('camera_info_topic').value)
         update_rate_hz = float(self.get_parameter('update_rate_hz').value)
+        self.input_timeout_s = float(self.get_parameter('input_timeout_s').value)
         self.chunk_size = int(
             self.get_parameter('comparison_chunk_size').value)
         self.use_spatial_human_filter = bool(
@@ -149,7 +150,9 @@ class ClosestPandaHumanVoxels(Node):
             self.get_parameter('marker_size_m').value)
         lifetime_s = float(
             self.get_parameter('marker_lifetime_s').value)
-        if update_rate_hz <= 0.0 or self.chunk_size <= 0:
+        if not math.isfinite(self.input_timeout_s) or self.input_timeout_s <= 0.0:
+            raise ValueError('input_timeout_s must be finite and positive')
+        if not math.isfinite(update_rate_hz) or update_rate_hz <= 0.0 or self.chunk_size <= 0:
             raise ValueError('update_rate_hz and comparison_chunk_size must be positive')
         if max_relative_speed_mps < 0.0 or distance_noise_margin_m < 0.0:
             raise ValueError('distance filter calibration must be non-negative')
@@ -165,12 +168,9 @@ class ClosestPandaHumanVoxels(Node):
         if self.marker_size_m <= 0.0 or lifetime_s <= 0.0:
             raise ValueError('marker size and lifetime must be positive')
         self.marker_lifetime = Duration(seconds=lifetime_s).to_msg()
-        max_drop_per_update_m = (
-            max_relative_speed_mps / update_rate_hz +
-            distance_noise_margin_m)
         self.distance_filter = DistanceFilter(
-            near_zero_rejection_threshold_m, max_drop_per_update_m,
-            math.ceil(rejected_hold_timeout_s * update_rate_hz))
+            near_zero_rejection_threshold_m, max_relative_speed_mps,
+            distance_noise_margin_m, rejected_hold_timeout_s)
 
         self.tf_buffer = Buffer(cache_time=Duration(seconds=10.0))
         self.tf_listener = TransformListener(self.tf_buffer, self)
@@ -213,15 +213,29 @@ class ClosestPandaHumanVoxels(Node):
         self.last_valid_human_point: Optional[np.ndarray] = None
         self.last_valid_panda_point: Optional[np.ndarray] = None
         self.last_status = ''
-        self.timer = self.create_timer(
-            1.0 / update_rate_hz,
-            self.compute_and_publish,
-        )
+        self.latest_result = None
+        self.last_human_received = None
+        self.last_panda_received = None
+        self.human_layer_stamp_ns = 0
+        self.panda_layer_stamp_ns = 0
+        self.layer_sources = OrderedDict()
+        self.timing_publisher = self.create_publisher(
+            String, '/closest_panda_human/processing_timing', 10)
+        source_prefix = human_topic.rsplit('/', 1)[0]
+        self.depth_reference_subscription = self.create_subscription(
+            TimeReference, source_prefix + '/layer_depth_reference',
+            lambda msg: self.source_reference_callback(msg, 'depth'), 10)
+        self.rgb_reference_subscription = self.create_subscription(
+            TimeReference, source_prefix + '/layer_mask_reference',
+            lambda msg: self.source_reference_callback(msg, 'rgb'), 10)
+        # Coalesce cache updates; compute without waiting for the publication timer.
+        self.compute_guard = self.create_guard_condition(self.compute_distance)
+        self.timer = self.create_timer(1.0 / update_rate_hz, self.publish_latest)
         self.get_logger().info(
             f'Finding the closest pair between {human_topic} and '
-            f'{panda_topic}; '
+            f'{panda_topic}; geometry=on voxel updates, output={update_rate_hz:.1f} Hz; '
             f'rejecting d <= {near_zero_rejection_threshold_m:.3f} m only '
-            f'when drop > {max_drop_per_update_m:.3f} m/update; '
+            f'max relative speed={max_relative_speed_mps:.3f} m/s; '
             f'hold timeout={rejected_hold_timeout_s:.1f} s; '
             f'image edge margin={self.image_edge_margin_ratio:.0%}; '
             f'spatial human filter={self.use_spatial_human_filter}')
@@ -237,10 +251,22 @@ class ClosestPandaHumanVoxels(Node):
             self.human_voxel_size_m = float(msg.voxel_size_m)
         self.human_frame = self.update_cache(
             msg, self.human_frame, self.human_blocks, 'human')
+        if msg.header.frame_id:
+            self.last_human_received = time.monotonic()
+            self.human_layer_stamp_ns = Time.from_msg(msg.header.stamp).nanoseconds
+        if not self.human_blocks:
+            self.latest_result = None
+        self.compute_guard.trigger()
 
     def panda_callback(self, msg: VoxelBlockLayer) -> None:
         self.panda_frame = self.update_cache(
             msg, self.panda_frame, self.panda_blocks, 'Panda')
+        if msg.header.frame_id:
+            self.last_panda_received = time.monotonic()
+            self.panda_layer_stamp_ns = Time.from_msg(msg.header.stamp).nanoseconds
+        if not self.panda_blocks:
+            self.latest_result = None
+        self.compute_guard.trigger()
 
     def sphere_callback(self, msg: MarkerArray) -> None:
         sphere_specs = []
@@ -272,6 +298,35 @@ class ClosestPandaHumanVoxels(Node):
             expanded_markers.markers.append(expanded)
         self.sphere_specs = sphere_specs
         self.expanded_sphere_publisher.publish(expanded_markers)
+        self.compute_guard.trigger()
+
+    def source_reference_callback(self, msg: TimeReference, stream: str) -> None:
+        key = Time.from_msg(msg.header.stamp).nanoseconds
+        source = self.layer_sources.setdefault(key, {})
+        source[stream] = Time.from_msg(msg.time_ref).nanoseconds
+        while len(self.layer_sources) > 256:
+            self.layer_sources.popitem(last=False)
+        if key == self.human_layer_stamp_ns and len(source) == 2:
+            self.compute_guard.trigger()
+
+    def inputs_fresh(self, sources) -> bool:
+        now = time.monotonic()
+        if not self.human_blocks or not self.panda_blocks:
+            return False
+        if any(stamp is None or now - stamp > self.input_timeout_s
+               for stamp in (self.last_human_received, self.last_panda_received)):
+            return False
+        now_ns = self.get_clock().now().nanoseconds
+        return all(stamp > 0 and abs(now_ns - stamp) <= self.input_timeout_s * 1e9
+                   for stamp in sources.values())
+
+    def invalidate_result(self, status: str) -> None:
+        self.latest_result = None
+        self.distance_filter.reset()
+        self.last_valid_human_point = self.last_valid_panda_point = None
+        if status != self.last_status:
+            self.get_logger().info(status)
+            self.last_status = status
 
     def camera_info_callback(self, msg: CameraInfo) -> None:
         self.camera_info = msg
@@ -321,6 +376,7 @@ class ClosestPandaHumanVoxels(Node):
                 f'{label} frame changed from {old_frame} to '
                 f'{msg.header.frame_id}; clearing its cache')
             blocks.clear()
+            self.invalidate_result('voxel frame changed')
         if msg.clear:
             blocks.clear()
         for block_index, block in zip(msg.block_indices, msg.blocks):
@@ -328,10 +384,15 @@ class ClosestPandaHumanVoxels(Node):
             if not block.centers:
                 blocks.pop(key, None)
                 continue
-            blocks[key] = np.asarray(
+            points = np.asarray(
                 [(center.x, center.y, center.z) for center in block.centers],
                 dtype=np.float64,
             )
+            points = points[np.isfinite(points).all(axis=1)]
+            if len(points):
+                blocks[key] = points
+            else:
+                blocks.pop(key, None)
         return msg.header.frame_id
 
     @staticmethod
@@ -356,12 +417,20 @@ class ClosestPandaHumanVoxels(Node):
         ])
         return points @ rotation.T + translation
 
-    def compute_and_publish(self) -> None:
+    def compute_distance(self) -> None:
+        """Calculate and filter a fresh map snapshot before publication throttling."""
+        started_mono_ns = time.monotonic_ns()
+        started_ros_ns = self.get_clock().now().nanoseconds
+        pair = self.layer_sources.get(self.human_layer_stamp_ns)
+        if pair is None or 'depth' not in pair or 'rgb' not in pair:
+            return
+        sources = dict(pair, panda=self.panda_layer_stamp_ns)
+        if not self.inputs_fresh(sources):
+            self.invalidate_result('waiting for fresh RGB-D and Panda voxel inputs')
+            return
         if not self.human_blocks or self.human_frame is None:
             status = 'waiting for human voxel data'
-            if status != self.last_status:
-                self.get_logger().info(status)
-                self.last_status = status
+            self.invalidate_result(status)
             return
 
         human_points = np.concatenate(tuple(self.human_blocks.values()))
@@ -374,9 +443,7 @@ class ClosestPandaHumanVoxels(Node):
             status = 'waiting for Panda voxel data'
             if waiting_for_spheres:
                 status += ' and collision-sphere data'
-            if status != self.last_status:
-                self.get_logger().info(status)
-                self.last_status = status
+            self.invalidate_result(status)
             return
 
         panda_points = np.concatenate(tuple(self.panda_blocks.values()))
@@ -387,61 +454,51 @@ class ClosestPandaHumanVoxels(Node):
                     timeout=Duration(seconds=0.1))
             except TransformException as exception:
                 status = f'TF unavailable: {self.panda_frame} -> {self.human_frame}'
-                if status != self.last_status:
-                    self.get_logger().warning(f'{status}: {exception}')
-                    self.last_status = status
+                self.invalidate_result(f'{status}: {exception}')
                 return
             panda_points = self.transform_points(
                 panda_points, transform.transform)
             stamp = transform.header.stamp
 
+        prepared_mono_ns = time.monotonic_ns()
+        components = self.connected_component_indices(human_points, self.human_voxel_size_m)
+        components_done_mono_ns = time.monotonic_ns()
         ignored_count = 0
         if self.use_spatial_human_filter:
             transformed_spheres = self.spheres_in_human_frame()
             if transformed_spheres is None:
+                self.invalidate_result('waiting for fresh collision-sphere transforms')
                 return
             sphere_centers, sphere_radii = transformed_spheres
-            human_points, ignored_count = self.exclude_robot_components(
+            components, ignored_count = self.exclude_robot_components(
                 human_points, sphere_centers, sphere_radii,
                 self.human_voxel_size_m,
-                self.robot_component_overlap_ratio)
-            if not len(human_points):
+                self.robot_component_overlap_ratio, components)
+            if not components:
                 status = 'all human voxels were removed by the spatial filter'
-                if status != self.last_status:
-                    self.get_logger().info(status)
-                    self.last_status = status
+                self.invalidate_result(status)
                 return
 
+        exclusion_done_mono_ns = time.monotonic_ns()
+        panda_tree = cKDTree(panda_points)
         candidates = sorted(
             (
-                (*self.closest_pair(human_points[component], panda_points),
+                (*self.closest_pair(human_points[component], panda_points, panda_tree),
                  human_points[component])
-                for component in self.connected_component_indices(
-                    human_points, self.human_voxel_size_m)
+                for component in components
             ),
             key=lambda candidate: candidate[2],
         )
+        nearest_done_mono_ns = time.monotonic_ns()
+        filter_time = time.monotonic()
         _, _, raw_distance, _ = candidates[0]
-        self.raw_distance_publisher.publish(Float32(data=float(raw_distance)))
-
         selected = self.first_accepted_candidate(
-            candidates, self.distance_filter)
+            candidates, self.distance_filter, filter_time)
         human_point, panda_point, selected_distance, selected_points = selected
         used_fallback = selected is not candidates[0]
         filtered_distance, filter_status = self.distance_filter.update(
             selected_distance,
-            self.human_points_touch_image_edge(selected_points))
-        if filtered_distance is None:
-            if filter_status.startswith('EXPIRED_'):
-                self.distance_publisher.publish(Float32(data=math.nan))
-            status = (
-                f'd_raw={raw_distance:.3f} m, filter={filter_status}; '
-                'no valid person distance')
-            if status != self.last_status:
-                self.get_logger().info(status)
-                self.last_status = status
-            return
-
+            self.human_points_touch_image_edge(selected_points), now=filter_time)
         if filter_status == 'VALID':
             self.last_valid_human_point = human_point.copy()
             self.last_valid_panda_point = panda_point.copy()
@@ -450,31 +507,75 @@ class ClosestPandaHumanVoxels(Node):
         elif filter_status == 'REJECTED_NEAR_ZERO_JUMP':
             if (self.last_valid_human_point is None or
                     self.last_valid_panda_point is None):
-                return
+                filtered_distance = None
             display_human_point = self.last_valid_human_point
             display_panda_point = self.last_valid_panda_point
         else:
             display_human_point = human_point
             display_panda_point = panda_point
 
-        self.distance_publisher.publish(Float32(data=float(filtered_distance)))
-        self.publish_markers(
-            display_human_point, display_panda_point, raw_distance,
-            filtered_distance, filter_status, stamp)
+        finished_mono_ns = time.monotonic_ns()
+        finished_ros_ns = self.get_clock().now().nanoseconds
+        if not self.inputs_fresh(sources):
+            self.invalidate_result('RGB-D or Panda inputs expired during distance calculation')
+            return
+        self.latest_result = {
+            'raw_distance': raw_distance, 'filtered_distance': filtered_distance,
+            'filter_status': filter_status, 'human_point': display_human_point,
+            'panda_point': display_panda_point, 'stamp': stamp,
+            'sources': sources, 'layer_stamp_ns': self.human_layer_stamp_ns,
+            'ignored_voxels': ignored_count, 'fallback_component': used_fallback,
+        }
+        self.last_status = filter_status
+        if self.timing_publisher.get_subscription_count() > 0:
+            timing = {
+                'layer_stamp_ns': self.human_layer_stamp_ns,
+                'depth_source_ns': sources['depth'], 'rgb_source_ns': sources['rgb'],
+                'panda_source_ns': sources['panda'],
+                'compute_started_ns': started_ros_ns, 'compute_finished_ns': finished_ros_ns,
+                'compute_started_mono_ns': started_mono_ns,
+                'compute_finished_mono_ns': finished_mono_ns,
+                'compute_ms': (finished_mono_ns - started_mono_ns) / 1e6,
+                'stage_ms': {
+                    'voxel_preparation': (prepared_mono_ns - started_mono_ns) / 1e6,
+                    'human_components': (components_done_mono_ns - prepared_mono_ns) / 1e6,
+                    'robot_exclusion': (exclusion_done_mono_ns - components_done_mono_ns) / 1e6,
+                    'nearest_pair': (nearest_done_mono_ns - exclusion_done_mono_ns) / 1e6,
+                    'distance_filter': (finished_mono_ns - nearest_done_mono_ns) / 1e6,
+                },
+                'depth_to_compute_ms': (finished_ros_ns - sources['depth']) / 1e6,
+                'rgb_to_compute_ms': (finished_ros_ns - sources['rgb']) / 1e6,
+                'raw_distance_m': raw_distance,
+                'filtered_distance_m': filtered_distance,
+                'filter_status': filter_status,
+                'ignored_voxels': ignored_count, 'fallback_component': used_fallback,
+            }
+            self.timing_publisher.publish(String(data=json.dumps(timing, allow_nan=False)))
 
-        status = (
-            f'human=({human_point[0]:.3f}, {human_point[1]:.3f}, '
-            f'{human_point[2]:.3f}), Panda=({panda_point[0]:.3f}, '
-            f'{panda_point[1]:.3f}, {panda_point[2]:.3f}), '
+    def publish_latest(self) -> None:
+        """Publish the cached result; never calculate or advance the filter here."""
+        result = self.latest_result
+        if result is None or not self.inputs_fresh(result['sources']):
+            self.invalidate_result('waiting for fresh RGB-D and Panda voxel inputs')
+            self.raw_distance_publisher.publish(Float32(data=math.nan))
+            self.distance_publisher.publish(Float32(data=math.nan))
+            self.marker_publisher.publish(MarkerArray(markers=[Marker(action=Marker.DELETEALL)]))
+            return
+        raw_distance = result['raw_distance']
+        filtered_distance = result['filtered_distance']
+        self.raw_distance_publisher.publish(Float32(data=float(raw_distance)))
+        self.distance_publisher.publish(Float32(
+            data=float(filtered_distance) if filtered_distance is not None else math.nan))
+        if filtered_distance is None:
+            self.marker_publisher.publish(MarkerArray(markers=[Marker(action=Marker.DELETEALL)]))
+        else:
+            self.publish_markers(
+                result['human_point'], result['panda_point'], raw_distance,
+                filtered_distance, result['filter_status'], result['stamp'])
+        self.get_logger().info(
             f'd_raw={raw_distance:.3f} m, '
-            f'd_filtered={filtered_distance:.3f} m, '
-            f'filter={filter_status}')
-        if self.use_spatial_human_filter:
-            status += f', ignored={ignored_count}'
-        if used_fallback:
-            status += ', fallback=NEXT_PERSON_COMPONENT'
-        self.get_logger().info(status)
-        self.last_status = 'tracking'
+            f'd_filtered={filtered_distance if filtered_distance is not None else math.nan:.3f} m, '
+            f'filter={result["filter_status"]}, ignored={result["ignored_voxels"]}')
 
     def spheres_in_human_frame(
         self,
@@ -507,11 +608,11 @@ class ClosestPandaHumanVoxels(Node):
         return np.asarray(centers), np.asarray(radii)
 
     @staticmethod
-    def first_accepted_candidate(candidates, distance_filter):
+    def first_accepted_candidate(candidates, distance_filter, now=None):
         """Prefer the nearest candidate that the temporal filter accepts."""
         return next(
             (candidate for candidate in candidates
-             if not distance_filter.rejects_candidate(candidate[2])),
+             if not distance_filter.rejects_candidate(candidate[2], now)),
             candidates[0],
         )
 
@@ -520,29 +621,19 @@ class ClosestPandaHumanVoxels(Node):
         points: np.ndarray, voxel_size_m: float,
     ) -> List[np.ndarray]:
         """Return 26-connected components as point-index arrays."""
+        if not len(points):
+            return []
         indices = np.floor(points / voxel_size_m).astype(np.int64)
-        points_by_index: Dict[BlockKey, List[int]] = {}
-        for point_index, index in enumerate(indices):
-            points_by_index.setdefault(tuple(index), []).append(point_index)
-
-        unvisited = set(points_by_index)
-        components = []
-        while unvisited:
-            queue = deque([unvisited.pop()])
-            component = []
-            while queue:
-                index = queue.popleft()
-                component.extend(points_by_index[index])
-                for dx in (-1, 0, 1):
-                    for dy in (-1, 0, 1):
-                        for dz in (-1, 0, 1):
-                            neighbor = (
-                                index[0] + dx, index[1] + dy, index[2] + dz)
-                            if neighbor in unvisited:
-                                unvisited.remove(neighbor)
-                                queue.append(neighbor)
-            components.append(np.asarray(component, dtype=np.int64))
-        return components
+        cells, inverse = np.unique(indices, axis=0, return_inverse=True)
+        pairs = cKDTree(cells).query_pairs(1, p=np.inf, output_type='ndarray')
+        graph = coo_matrix(
+            (np.ones(len(pairs)), (pairs[:, 0], pairs[:, 1])),
+            shape=(len(cells), len(cells)))
+        _, labels = connected_components(graph, directed=False)
+        point_labels = labels[inverse]
+        order = np.argsort(point_labels, kind='stable')
+        boundaries = np.flatnonzero(np.diff(point_labels[order])) + 1
+        return list(np.split(order, boundaries))
 
     @staticmethod
     def exclude_robot_components(
@@ -551,7 +642,8 @@ class ClosestPandaHumanVoxels(Node):
         sphere_radii: np.ndarray,
         voxel_size_m: float,
         overlap_ratio: float,
-    ) -> Tuple[np.ndarray, int]:
+        components: Optional[List[np.ndarray]] = None,
+    ) -> Tuple[List[np.ndarray], int]:
         """Remove connected human components mostly overlapping Panda."""
         squared_radii = sphere_radii * sphere_radii
         difference = np.maximum(
@@ -565,34 +657,30 @@ class ClosestPandaHumanVoxels(Node):
             axis=1,
         )
 
-        remove = np.zeros(len(human_points), dtype=bool)
-        for component in ClosestPandaHumanVoxels.connected_component_indices(
-                human_points, voxel_size_m):
-            if np.mean(overlaps_robot[component]) >= overlap_ratio:
-                remove[component] = True
-        return human_points[~remove], int(np.count_nonzero(remove))
+        if components is None:
+            components = ClosestPandaHumanVoxels.connected_component_indices(human_points, voxel_size_m)
+        retained = [component for component in components
+                    if np.mean(overlaps_robot[component]) < overlap_ratio]
+        removed = len(human_points) - sum(len(component) for component in retained)
+        return retained, removed
 
     def closest_pair(
         self, human_points: np.ndarray, panda_points: np.ndarray,
+        panda_tree=None,
     ) -> Tuple[np.ndarray, np.ndarray, float]:
-        best_squared = math.inf
+        tree = panda_tree if panda_tree is not None else cKDTree(panda_points)
+        best_distance = math.inf
         best_human = human_points[0]
         best_panda = panda_points[0]
-        for human_start in range(0, len(human_points), self.chunk_size):
-            humans = human_points[human_start:human_start + self.chunk_size]
-            for panda_start in range(0, len(panda_points), self.chunk_size):
-                pandas = panda_points[panda_start:panda_start + self.chunk_size]
-                difference = humans[:, None, :] - pandas[None, :, :]
-                squared = np.einsum('ijk,ijk->ij', difference, difference)
-                flat_index = int(np.argmin(squared))
-                candidate = float(squared.flat[flat_index])
-                if candidate < best_squared:
-                    human_index, panda_index = np.unravel_index(
-                        flat_index, squared.shape)
-                    best_squared = candidate
-                    best_human = humans[human_index].copy()
-                    best_panda = pandas[panda_index].copy()
-        return best_human, best_panda, math.sqrt(best_squared)
+        for start in range(0, len(human_points), self.chunk_size):
+            humans = human_points[start:start + self.chunk_size]
+            distances, indices = tree.query(humans, k=1)
+            closest = int(np.argmin(distances))
+            if distances[closest] < best_distance:
+                best_distance = float(distances[closest])
+                best_human = humans[closest].copy()
+                best_panda = panda_points[indices[closest]].copy()
+        return best_human, best_panda, best_distance
 
     def publish_markers(
         self,

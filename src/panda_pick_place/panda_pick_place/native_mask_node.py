@@ -36,9 +36,13 @@ def prepare_native_mask(mask, width, height, component_threshold=2000, component
         count, labels, stats, _ = cv2.connectedComponentsWithStats(small, connectivity=4)
         keep = np.zeros(count, dtype=np.uint8)
         keep[1:] = (stats[1:, cv2.CC_STAT_AREA] >= max(1, component_threshold // (stride * stride)))
-        clean = np.repeat(np.repeat(keep[labels], stride, axis=0), stride, axis=1)
+        clean = keep[labels]
+        if stride > 1:
+            clean = np.repeat(np.repeat(clean, stride, axis=0), stride, axis=1)
     else:
         clean = (mask > 0).astype(np.uint8)
+    if clean.shape == (height, width):
+        return np.ascontiguousarray(clean * 255, dtype=np.uint8)
     coverage = cv2.resize(clean.astype(np.float32), (width, height), interpolation=cv2.INTER_AREA)
     return np.ascontiguousarray((coverage > 0).astype(np.uint8) * 255)
 

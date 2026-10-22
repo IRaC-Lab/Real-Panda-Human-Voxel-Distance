@@ -47,7 +47,8 @@ panda_voxel_classifier:
 closest_panda_human_voxels:
   ros__parameters:
     panda_topic: /panda/voxel_layer
-    update_rate_hz: 5.0
+    update_rate_hz: 5.0  # Publication only; calculation/filtering follow fresh voxel inputs.
+    input_timeout_s: 0.5
     sphere_topic: /panda/collision_spheres
     expanded_sphere_topic: /panda/human_exclusion_spheres
     # Reject a near-zero distance only when its per-update drop is faster than
