@@ -29,39 +29,6 @@ Companion project:
   [franka_ros2](https://github.com/frankaemika/franka_ros2) driver only
   targets FR3+/newer libfranka, so this uses the community fork instead.
 
-Eventual target is an NVIDIA Jetson AGX Orin — match JetPack/L4T and the
-Isaac ROS release actually installed on the board. Other combinations
-untested.
-
-## Update an existing installation
-
-Stop the running ROS nodes and save local source changes before updating:
-
-```bash
-cd "$HOME/panda_real_ws"
-git pull --ff-only
-git lfs pull
-```
-
-Older camera and segmentation patches conflict with the current patches.
-Move the external source checkouts to a backup outside the workspace;
-step 5 below will import the pinned revisions and apply the current patches:
-
-```bash
-DEPENDENCY_BACKUP="$(mktemp -d "$HOME/panda_real_ws-dependencies.XXXXXX")"
-for dependency in isaac_ros_nvblox franka_arm_ros2; do
-    if [ -d "src/$dependency" ]; then
-        mv "src/$dependency" "$DEPENDENCY_BACKUP/"
-    fi
-done
-```
-
-Complete [prerequisites](#1-prerequisites) and [runtime dependencies](#2-runtime-dependencies),
-then [build the workspace](#5-import-patch-and-build) and
-[generate the engine](#6-build-the-segmentation-engine). Keep the existing
-libfranka 0.9.2 installation and `source_real_ws` function.
-Custom edits in the backed-up dependencies must be reapplied separately.
-
 ## Installation
 
 ### 1. Prerequisites
